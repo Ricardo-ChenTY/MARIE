@@ -61,6 +61,7 @@ def run_case_stage0_4(
 
     comp.planner.set_report(report_text)
     comp.anatomy_resolver.volume_shape = volume.shape
+    comp.verifier.volume_shape = tuple(int(x) for x in volume.shape)
     plans = comp.planner.plan(tokens)
 
     sentence_outputs: List[SentenceOutput] = []

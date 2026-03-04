@@ -10,6 +10,22 @@ LEFT_WORDS = ("left", "lt", "左")
 RIGHT_WORDS = ("right", "rt", "右")
 BILATERAL_WORDS = ("bilateral", "both", "双侧")
 NEGATION_WORDS = ("no ", "without", "not ", "未见", "无")
+POSITIVE_FINDING_WORDS = (
+    "nodule",
+    "mass",
+    "lesion",
+    "opacity",
+    "consolidation",
+    "infiltrate",
+    "effusion",
+    "edema",
+    "pneumothorax",
+    "ground glass",
+    "atelectasis",
+    "embol",
+    "thrombus",
+    "fibrosis",
+)
 
 
 def parse_laterality(text: str) -> Optional[str]:
@@ -47,8 +63,12 @@ def token_side(token: EvidenceToken, x_mid: float, tol: float) -> str:
 class Verifier:
     cfg: VerifierConfig
     anatomy_bbox_resolver: Callable[[Optional[str]], Optional[BBox3D]]
+    volume_shape: Optional[Tuple[int, int, int]] = None
 
     def _global_midline_x(self, tokens: Sequence[EvidenceToken]) -> float:
+        if self.volume_shape is not None:
+            # volume_shape is [D,H,W], x-axis maps to W.
+            return float(self.volume_shape[2]) / 2.0
         x_min = min(t.bbox.x_min for t in tokens)
         x_max = max(t.bbox.x_max for t in tokens)
         return (x_min + x_max) / 2.0
@@ -85,20 +105,47 @@ class Verifier:
         # R2 anatomy IoU consistency
         anatomy_bbox = self.anatomy_bbox_resolver(plan.anatomy_keyword)
         if anatomy_bbox is not None and cited:
-            max_iou = max(tok.bbox.iou(anatomy_bbox) for tok in cited)
-            if max_iou < self.cfg.tau_anatomy_iou:
-                sev = self.cfg.severity_by_rule["R2_ANATOMY"] * (
-                    1.0 - (max_iou / max(self.cfg.tau_anatomy_iou, 1e-8))
-                )
-                violations.append(
-                    RuleViolation(
-                        sentence_index=sentence.sentence_index,
-                        rule_id="R2_ANATOMY",
-                        severity=clamp(sev, 0.0, 1.0),
-                        message="Anatomy IoU below threshold.",
-                        token_ids=[tok.token_id for tok in cited],
+            iou_by_tok = {tok.token_id: float(tok.bbox.iou(anatomy_bbox)) for tok in cited}
+            if self.cfg.use_max_iou_for_r2:
+                max_iou = max(iou_by_tok.values())
+                if max_iou < self.cfg.tau_anatomy_iou:
+                    sev = self.cfg.severity_by_rule["R2_ANATOMY"] * (
+                        1.0 - (max_iou / max(self.cfg.tau_anatomy_iou, 1e-8))
                     )
-                )
+                    violations.append(
+                        RuleViolation(
+                            sentence_index=sentence.sentence_index,
+                            rule_id="R2_ANATOMY",
+                            severity=clamp(sev, 0.0, 1.0),
+                            message="Anatomy IoU below threshold (max IoU mode).",
+                            token_ids=[tok.token_id for tok in cited],
+                        )
+                    )
+            else:
+                bad_ids = [tid for tid, iou in iou_by_tok.items() if iou < self.cfg.tau_anatomy_iou]
+                good_ratio = 1.0 - (len(bad_ids) / max(len(cited), 1))
+                if good_ratio < self.cfg.r2_min_support_ratio:
+                    gap_terms = [
+                        (self.cfg.tau_anatomy_iou - iou) / max(self.cfg.tau_anatomy_iou, 1e-8)
+                        for iou in iou_by_tok.values()
+                        if iou < self.cfg.tau_anatomy_iou
+                    ]
+                    mean_gap = float(sum(gap_terms) / max(len(gap_terms), 1))
+                    ratio_gap = float(self.cfg.r2_min_support_ratio - good_ratio)
+                    sev_scale = clamp(max(mean_gap, ratio_gap), 0.0, 1.0)
+                    sev = self.cfg.severity_by_rule["R2_ANATOMY"] * sev_scale
+                    violations.append(
+                        RuleViolation(
+                            sentence_index=sentence.sentence_index,
+                            rule_id="R2_ANATOMY",
+                            severity=clamp(sev, 0.0, 1.0),
+                            message=(
+                                f"Anatomy support ratio={good_ratio:.3f} below required "
+                                f"{self.cfg.r2_min_support_ratio:.3f}."
+                            ),
+                            token_ids=bad_ids,
+                        )
+                    )
 
         # R3 depth-level consistency
         if plan.expected_level_range and cited:
@@ -138,15 +185,26 @@ class Verifier:
             conflicted = [
                 tok for tok in cited if float(tok.metadata.get("negation_conflict", 0.0)) > 0.0
             ]
+            sev = 0.0
+            msg = "Negated sentence cites evidence likely supporting positive finding."
             if conflicted:
                 sev = max(float(tok.metadata.get("negation_conflict", 0.0)) for tok in conflicted)
                 sev = clamp(sev, 0.0, 1.0) * self.cfg.severity_by_rule["R5_NEGATION"]
+            elif self.cfg.r5_fallback_lexicon:
+                t = sentence.text.lower()
+                has_positive_word = any(w in t for w in POSITIVE_FINDING_WORDS)
+                if has_positive_word:
+                    conflicted = list(cited)
+                    sev = clamp(self.cfg.r5_fallback_severity, 0.0, 1.0) * self.cfg.severity_by_rule["R5_NEGATION"]
+                    msg = "Negation fallback: positive finding lexicon detected in negated sentence."
+
+            if conflicted:
                 violations.append(
                     RuleViolation(
                         sentence_index=sentence.sentence_index,
                         rule_id="R5_NEGATION",
                         severity=clamp(sev, 0.0, 1.0),
-                        message="Negated sentence cites evidence likely supporting positive finding.",
+                        message=msg,
                         token_ids=[tok.token_id for tok in conflicted],
                     )
                 )

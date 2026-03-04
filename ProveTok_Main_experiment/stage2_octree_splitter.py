@@ -8,7 +8,7 @@ import numpy as np
 from .config import SplitConfig
 from .math_utils import quantile_rank
 from .stage0_2 import boundary_context_blend, importance_score, soft_gate
-from .stage0_artifacts import CellBounds, compute_artifact_components
+from .stage0_artifacts import CellBounds, compute_artifact_components_from_stage0
 from .types import BBox3D, EvidenceToken
 
 
@@ -161,9 +161,20 @@ class AdaptiveOctreeSplitter:
     def __init__(self, cfg: SplitConfig) -> None:
         self.cfg = cfg
 
-    def _recompute_scores(self, volume: np.ndarray, encoded: np.ndarray, cells: List[OctreeCell]) -> None:
+    def _recompute_scores(
+        self,
+        volume: np.ndarray,
+        encoded: np.ndarray,
+        cells: List[OctreeCell],
+        artifact_state: object,
+    ) -> None:
         bounds = [c.bounds for c in cells]
-        artifact = compute_artifact_components(volume, bounds, self.cfg)
+        artifact = compute_artifact_components_from_stage0(
+            volume,
+            bounds,
+            self.cfg,
+            stage0_state=artifact_state if isinstance(artifact_state, dict) else None,
+        )
         h_raw: List[float] = []
         p_raw: List[float] = []
         for i, c in enumerate(cells):
@@ -203,7 +214,6 @@ class AdaptiveOctreeSplitter:
         artifact_state: object,
         token_budget_b: int,
     ) -> List[EvidenceToken]:
-        _ = artifact_state  # Stage 0 precompute can be threaded in here if needed.
         vol = np.asarray(volume, dtype=np.float32)
         if vol.ndim != 3:
             raise ValueError(f"Expected volume shape [D,H,W], got {vol.shape}")
@@ -218,7 +228,7 @@ class AdaptiveOctreeSplitter:
             OctreeCell(bounds=b, level=self.cfg.init_depth, feature=np.zeros((feat.shape[0],), dtype=np.float32))
             for b in init_bounds
         ]
-        self._recompute_scores(vol, feat, leaves)
+        self._recompute_scores(vol, feat, leaves, artifact_state)
 
         # Adaptive split loop
         while len(leaves) < token_budget_b:
@@ -244,7 +254,7 @@ class AdaptiveOctreeSplitter:
                         feature=np.zeros((feat.shape[0],), dtype=np.float32),
                     )
                 )
-            self._recompute_scores(vol, feat, leaves)
+            self._recompute_scores(vol, feat, leaves, artifact_state)
 
         leaves_sorted = sorted(leaves, key=lambda c: (-c.score, c.bounds.z0, c.bounds.y0, c.bounds.x0))
         selected = _nms_cells(leaves_sorted, self.cfg.nms_iou_threshold, top_b=token_budget_b)
@@ -290,6 +300,7 @@ class AdaptiveOctreeSplitter:
                         "h_i_q": float(c.h_i_q),
                         "p_i_q": float(c.p_i_q),
                         "g_i": float(c.g_i),
+                        "negation_conflict": 0.0,
                         "split_source": "adaptive_octree",
                     },
                 )

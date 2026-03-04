@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+from typing import Optional
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
@@ -232,8 +233,10 @@ def validate_outputs(
     out_dir: Path,
     datasets: List[str],
     expected_cases_per_dataset: int = 0,
+    expected_cases_by_dataset: Optional[Dict[str, int]] = None,
 ) -> Tuple[List[CaseValidation], int]:
     results: List[CaseValidation] = []
+    expected_cases_by_dataset = expected_cases_by_dataset or {}
     for ds in datasets:
         ds_dir = out_dir / "cases" / ds
         if not ds_dir.exists():
@@ -248,14 +251,15 @@ def validate_outputs(
             )
             continue
         case_dirs = [p for p in ds_dir.iterdir() if p.is_dir()]
-        if expected_cases_per_dataset > 0 and len(case_dirs) != expected_cases_per_dataset:
+        expected_n = int(expected_cases_by_dataset.get(ds, expected_cases_per_dataset))
+        if expected_n > 0 and len(case_dirs) != expected_n:
             results.append(
                 CaseValidation(
                     dataset=ds,
                     case_id="__dataset__",
                     passed=False,
                     errors=[
-                        f"expected {expected_cases_per_dataset} cases, found {len(case_dirs)} under: {ds_dir}"
+                        f"expected {expected_n} cases, found {len(case_dirs)} under: {ds_dir}"
                     ],
                     warnings=[],
                 )
@@ -278,6 +282,28 @@ def validate_outputs(
     return results, n_failed
 
 
+def _parse_expected_cases_map(text: str) -> Dict[str, int]:
+    """
+    Parse 'ctrate=450,radgenome=450' into dict.
+    """
+    out: Dict[str, int] = {}
+    if not text.strip():
+        return out
+    parts = [x.strip() for x in text.split(",") if x.strip()]
+    for p in parts:
+        if "=" not in p:
+            raise ValueError(f"Invalid expected_cases_map item: '{p}', require key=value")
+        k, v = p.split("=", 1)
+        k = k.strip()
+        if not k:
+            raise ValueError(f"Invalid expected_cases_map item: '{p}', empty dataset key")
+        try:
+            out[k] = int(v.strip())
+        except Exception as exc:
+            raise ValueError(f"Invalid expected case count in '{p}'") from exc
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate Stage0-4 output folder against A/B/C/D expectations.")
     parser.add_argument("--out_dir", type=str, default="outputs_stage0_4")
@@ -288,16 +314,24 @@ def main() -> None:
         default=0,
         help="If >0, enforce exact case count per dataset (e.g. 450).",
     )
+    parser.add_argument(
+        "--expected_cases_map",
+        type=str,
+        default="",
+        help="Per-dataset exact counts, e.g. 'ctrate=450,radgenome=450'. Overrides --expected_cases_per_dataset.",
+    )
     parser.add_argument("--save_report", type=str, default="")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
     datasets = [x.strip() for x in args.datasets.split(",") if x.strip()]
 
+    expected_cases_by_dataset = _parse_expected_cases_map(args.expected_cases_map)
     results, n_failed = validate_outputs(
         out_dir,
         datasets,
         expected_cases_per_dataset=int(args.expected_cases_per_dataset),
+        expected_cases_by_dataset=expected_cases_by_dataset,
     )
     n_total = len(results)
     n_pass = n_total - n_failed

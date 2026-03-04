@@ -75,20 +75,70 @@ class ReportSentencePlanner:
     @staticmethod
     def _expected_level_range(sentence: str) -> Optional[Tuple[int, int]]:
         s = sentence.lower()
-        if any(k in s for k in ("diffuse", "bilateral", "both lungs", "全肺", "双侧")):
+        coarse_terms = (
+            "diffuse",
+            "bilateral",
+            "both lungs",
+            "multifocal",
+            "interstitial",
+            "edema",
+            "effusion",
+            "consolidation",
+            "全肺",
+            "双侧",
+            "弥漫",
+        )
+        focal_terms = (
+            "nodule",
+            "mass",
+            "focal",
+            "lesion",
+            "cavity",
+            "cavitary",
+            "结节",
+            "肿块",
+            "局灶",
+            "病灶",
+        )
+        if any(k in s for k in coarse_terms):
             return (0, 2)
-        if any(k in s for k in ("nodule", "mass", "结节", "肿块", "focal")):
+        if any(k in s for k in focal_terms):
             return (2, 5)
         return None
 
     @staticmethod
     def _expected_volume_range(sentence: str) -> Optional[Tuple[float, float]]:
         s = sentence.lower()
-        if any(k in s for k in ("tiny", "small", "<", "毫米", "mm")):
+        small_terms = (
+            "tiny",
+            "small",
+            "subcentimeter",
+            "sub-centimeter",
+            "punctate",
+            "<",
+            "毫米",
+            "mm",
+        )
+        large_terms = (
+            "large",
+            "extensive",
+            "massive",
+            "multilobar",
+            "大量",
+            "广泛",
+            "巨大",
+        )
+        if any(k in s for k in small_terms):
             return (0.0, 2.0e4)
-        if any(k in s for k in ("large", "extensive", "大量")):
+        if any(k in s for k in large_terms):
             return (5.0e4, 1.0e9)
         return None
+
+    @staticmethod
+    def _is_negated(sentence: str) -> bool:
+        s = sentence.lower()
+        neg_words = ("no ", "without", "not ", "negative for", "absence of", "未见", "无", "否认")
+        return any(k in s for k in neg_words)
 
     def plan(self, coarse_tokens: Sequence[EvidenceToken]) -> List[SentencePlan]:
         _ = coarse_tokens
@@ -107,7 +157,7 @@ class ReportSentencePlanner:
                     anatomy_keyword=kw,
                     expected_level_range=self._expected_level_range(s),
                     expected_volume_range=self._expected_volume_range(s),
-                    is_negated=("no " in s.lower()) or ("without" in s.lower()) or ("未见" in s),
+                    is_negated=self._is_negated(s),
                 )
             )
         return plans

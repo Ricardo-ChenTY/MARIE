@@ -1,6 +1,7 @@
 import argparse
+import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -19,7 +20,7 @@ from ProveTok_Main_experiment.stage2_octree_splitter import AdaptiveOctreeSplitt
 from ProveTok_Main_experiment.stage3_router import Router
 from ProveTok_Main_experiment.stage4_verifier import Verifier
 from ProveTok_Main_experiment.stage0_4_runner import run_case_stage0_4, Stage04Components
-from ProveTok_Main_experiment.text_encoder import DeterministicTextEncoder
+from ProveTok_Main_experiment.text_encoder import make_text_encoder
 
 
 def _run_manifest(
@@ -34,14 +35,34 @@ def _run_manifest(
     encoder_ckpt: Optional[str],
     device: str,
     resize_dhw: Tuple[int, int, int],
-) -> pd.DataFrame:
-    df = pd.read_csv(manifest_csv).head(max_cases).reset_index(drop=True)
+    text_encoder: Callable[[str], List[float]],
+    expected_cases: int = 0,
+) -> Tuple[pd.DataFrame, Dict[str, object]]:
+    df_all = pd.read_csv(manifest_csv)
+    n_available = int(len(df_all))
+    df = df_all.head(max_cases).reset_index(drop=True)
+    n_selected = int(len(df))
+    if expected_cases > 0 and n_selected != expected_cases:
+        raise ValueError(
+            f"{dataset_name}: expected {expected_cases} cases, but selected {n_selected} "
+            f"(manifest rows={n_available}, max_cases={max_cases})."
+        )
     if volume_col not in df.columns:
         raise ValueError(f"Missing column '{volume_col}' in {manifest_csv}")
     if report_col not in df.columns:
         raise ValueError(f"Missing column '{report_col}' in {manifest_csv}")
     if case_id_col not in df.columns:
         df[case_id_col] = [f"{dataset_name}_{i:05d}" for i in range(len(df))]
+    df[case_id_col] = df[case_id_col].astype(str).str.strip()
+    dup_mask = df[case_id_col].duplicated(keep=False)
+    if bool(dup_mask.any()):
+        dup_vals = sorted(df.loc[dup_mask, case_id_col].unique().tolist())
+        preview = dup_vals[:10]
+        suffix = "" if len(dup_vals) <= 10 else f" ... (+{len(dup_vals) - 10} more)"
+        raise ValueError(
+            f"{dataset_name}: duplicated case_id detected in manifest: {preview}{suffix}. "
+            "Please ensure case_id is unique."
+        )
 
     cache_root = out_dir / "cache" / dataset_name
     comp = Stage04Components(
@@ -55,7 +76,7 @@ def _run_manifest(
         splitter=AdaptiveOctreeSplitter(cfg.split),
         planner=ReportSentencePlanner(max_sentences=8),
         anatomy_resolver=RuleBasedAnatomyResolver(),
-        router=Router(cfg=cfg.router, text_encoder=DeterministicTextEncoder(dim=256), w_proj=None),
+        router=Router(cfg=cfg.router, text_encoder=text_encoder, w_proj=None),
         verifier=Verifier(cfg.verifier, RuleBasedAnatomyResolver()),
     )
     comp.verifier = Verifier(cfg.verifier, comp.anatomy_resolver)
@@ -95,7 +116,14 @@ def _run_manifest(
         )
     out_df = pd.DataFrame(rows)
     out_df.to_csv(out_dir / f"{dataset_name}_case_summary.csv", index=False)
-    return out_df
+    return out_df, {
+        "dataset": dataset_name,
+        "manifest_csv": str(manifest_csv),
+        "manifest_rows": n_available,
+        "selected_rows": n_selected,
+        "processed_rows": int(len(out_df)),
+        "max_cases": int(max_cases),
+    }
 
 
 def main() -> None:
@@ -118,6 +146,36 @@ def main() -> None:
     parser.add_argument("--lambda_spatial", type=float, default=0.3)
     parser.add_argument("--tau_iou", type=float, default=0.1)
     parser.add_argument("--beta", type=float, default=0.1)
+    parser.add_argument("--text_encoder", type=str, default="hash", help="hash | semantic")
+    parser.add_argument(
+        "--text_encoder_model",
+        type=str,
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        help="Sentence-transformers model name when text_encoder=semantic.",
+    )
+    parser.add_argument(
+        "--text_encoder_hash_dim",
+        type=int,
+        default=256,
+        help="Embedding dim when text_encoder=hash.",
+    )
+    parser.add_argument(
+        "--text_encoder_device",
+        type=str,
+        default="cpu",
+        help="Device for semantic text encoder (cpu/cuda).",
+    )
+    parser.add_argument(
+        "--cp_strict",
+        action="store_true",
+        help="Enable CP strict checks (requires semantic text encoder + SwinUNETR checkpoint).",
+    )
+    parser.add_argument(
+        "--expected_cases_per_dataset",
+        type=int,
+        default=0,
+        help="If >0, require selected case count per dataset to equal this value (e.g. 450).",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -144,7 +202,24 @@ def main() -> None:
     cfg.router.lambda_spatial = float(args.lambda_spatial)
     cfg.verifier.tau_anatomy_iou = float(args.tau_iou)
 
-    ct_df = _run_manifest(
+    text_encoder_mode = str(args.text_encoder).strip().lower()
+    if args.cp_strict:
+        if not args.encoder_ckpt:
+            raise ValueError("CP strict mode requires --encoder_ckpt for SwinUNETR.")
+        if text_encoder_mode in ("hash", "deterministic"):
+            text_encoder_mode = "semantic"
+            print("[CP strict] text_encoder=hash is overridden to semantic.")
+        cfg.verifier.use_max_iou_for_r2 = False
+        cfg.verifier.r2_min_support_ratio = 1.0
+
+    text_encoder = make_text_encoder(
+        encoder_type=text_encoder_mode,
+        hash_dim=int(args.text_encoder_hash_dim),
+        st_model_name=args.text_encoder_model,
+        st_device=args.text_encoder_device,
+    )
+
+    ct_df, ct_meta = _run_manifest(
         dataset_name="ctrate",
         manifest_csv=ctrate_csv,
         out_dir=out_dir,
@@ -156,8 +231,10 @@ def main() -> None:
         encoder_ckpt=args.encoder_ckpt,
         device=args.device,
         resize_dhw=resize_dhw,
+        text_encoder=text_encoder,
+        expected_cases=int(args.expected_cases_per_dataset),
     )
-    rg_df = _run_manifest(
+    rg_df, rg_meta = _run_manifest(
         dataset_name="radgenome",
         manifest_csv=radgenome_csv,
         out_dir=out_dir,
@@ -169,11 +246,35 @@ def main() -> None:
         encoder_ckpt=args.encoder_ckpt,
         device=args.device,
         resize_dhw=resize_dhw,
+        text_encoder=text_encoder,
+        expected_cases=int(args.expected_cases_per_dataset),
     )
     summary = pd.concat([ct_df, rg_df], axis=0, ignore_index=True)
     summary.to_csv(out_dir / "summary.csv", index=False)
+    run_meta = {
+        "build_mini": bool(args.build_mini),
+        "ctrate": ct_meta,
+        "radgenome": rg_meta,
+        "token_budget_b": int(cfg.split.token_budget_b),
+        "k_per_sentence": int(cfg.router.k_per_sentence),
+        "lambda_spatial": float(cfg.router.lambda_spatial),
+        "tau_iou": float(cfg.verifier.tau_anatomy_iou),
+        "beta": float(cfg.split.beta),
+        "device": str(args.device),
+        "resize_dhw": [int(x) for x in resize_dhw],
+        "cp_strict": bool(args.cp_strict),
+        "text_encoder": str(text_encoder_mode),
+        "text_encoder_model": str(args.text_encoder_model),
+        "text_encoder_device": str(args.text_encoder_device),
+        "encoder_ckpt": str(args.encoder_ckpt) if args.encoder_ckpt else None,
+        "r2_mode": "max_iou" if cfg.verifier.use_max_iou_for_r2 else "ratio",
+        "r2_min_support_ratio": float(cfg.verifier.r2_min_support_ratio),
+    }
+    with (out_dir / "run_meta.json").open("w", encoding="utf-8") as f:
+        json.dump(run_meta, f, ensure_ascii=False, indent=2)
     print(summary.groupby("dataset", as_index=False).agg(cases=("case_id", "count"), violations=("n_violations", "sum")))
     print(f"Saved summary: {out_dir / 'summary.csv'}")
+    print(f"Saved run meta: {out_dir / 'run_meta.json'}")
 
 
 if __name__ == "__main__":

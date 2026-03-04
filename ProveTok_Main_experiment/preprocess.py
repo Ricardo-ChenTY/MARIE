@@ -19,9 +19,12 @@ def load_volume_with_meta(path: str) -> Tuple[np.ndarray, Dict[str, object]]:
             "spacing_xyz_mm": [1.0, 1.0, 1.0],
             "origin_xyz_mm": [0.0, 0.0, 0.0],
             "direction": None,
+            "orientation": "UNKNOWN",
             "source": str(p),
         }
     img = sitk.ReadImage(str(p))
+    # Canonicalize to LPS so laterality uses a consistent physical coordinate frame.
+    img = sitk.DICOMOrient(img, "LPS")
     arr = sitk.GetArrayFromImage(img).astype(np.float32)  # [D,H,W]
     spacing_xyz = img.GetSpacing()  # x,y,z
     origin_xyz = img.GetOrigin()
@@ -30,6 +33,7 @@ def load_volume_with_meta(path: str) -> Tuple[np.ndarray, Dict[str, object]]:
         "spacing_xyz_mm": [float(spacing_xyz[0]), float(spacing_xyz[1]), float(spacing_xyz[2])],
         "origin_xyz_mm": [float(origin_xyz[0]), float(origin_xyz[1]), float(origin_xyz[2])],
         "direction": direction,
+        "orientation": "LPS",
         "source": str(p),
     }
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -73,6 +73,50 @@ def compute_artifact_components(
         snr_inv = sigma / (abs(mu) + cfg.epsilon)
         streak = _streak_score(crop)
         outlier = _outlier_score(crop, cfg.epsilon)
+        raw.append(ArtifactComponents(snr_inv=snr_inv, streak=streak, outlier=outlier))
+
+    snr_n = _minmax_norm([x.snr_inv for x in raw])
+    streak_n = _minmax_norm([x.streak for x in raw])
+    outlier_n = _minmax_norm([x.outlier for x in raw])
+
+    out: List[ArtifactComponents] = []
+    for comp, ns, nt, no in zip(raw, snr_n, streak_n, outlier_n):
+        a_i = clamp(cfg.w_snr * ns + cfg.w_streak * nt + cfg.w_outlier * no, 0.0, 1.0)
+        out.append(ArtifactComponents(snr_inv=comp.snr_inv, streak=comp.streak, outlier=comp.outlier, a_i=a_i))
+    return out
+
+
+def compute_artifact_components_from_stage0(
+    volume: np.ndarray,
+    cell_bounds: Sequence[CellBounds],
+    cfg: SplitConfig,
+    stage0_state: Optional[dict],
+) -> List[ArtifactComponents]:
+    """
+    Reuse Stage0 cached statistics (grad_mag/median/mad) when available.
+    Falls back to direct recompute if state is missing/incomplete.
+    """
+    if not isinstance(stage0_state, dict):
+        return compute_artifact_components(volume, cell_bounds, cfg)
+    if "grad_mag" not in stage0_state or "median" not in stage0_state or "mad" not in stage0_state:
+        return compute_artifact_components(volume, cell_bounds, cfg)
+
+    grad_mag = np.asarray(stage0_state["grad_mag"], dtype=np.float32)
+    if grad_mag.shape != volume.shape:
+        return compute_artifact_components(volume, cell_bounds, cfg)
+    global_median = float(stage0_state["median"])
+    global_mad = float(stage0_state["mad"]) + cfg.epsilon
+
+    raw: List[ArtifactComponents] = []
+    for b in cell_bounds:
+        crop = _cell_crop(volume, b)
+        g_crop = _cell_crop(grad_mag, b)
+        mu = float(np.mean(crop))
+        sigma = float(np.std(crop))
+        snr_inv = sigma / (abs(mu) + cfg.epsilon)
+        streak = float(np.mean(g_crop))
+        robust_z = np.abs(crop.astype(np.float32) - global_median) / (1.4826 * global_mad)
+        outlier = float(np.mean(robust_z > 3.5))
         raw.append(ArtifactComponents(snr_inv=snr_inv, streak=streak, outlier=outlier))
 
     snr_n = _minmax_norm([x.snr_inv for x in raw])

@@ -50,6 +50,11 @@ python run_mini_experiment.py `
   --build_mini `
   --out_dir outputs_stage0_4 `
   --max_cases 450 `
+  --expected_cases_per_dataset 450 `
+  --cp_strict `
+  --encoder_ckpt <path_to_swinunetr_ckpt.pt> `
+  --text_encoder semantic `
+  --text_encoder_model sentence-transformers/all-MiniLM-L6-v2 `
   --device cuda `
   --token_budget_b 64 `
   --k_per_sentence 8 `
@@ -75,6 +80,8 @@ python run_mini_experiment.py `
 - `summary.csv`
 - `ctrate_case_summary.csv`
 - `radgenome_case_summary.csv`
+- `run_meta.json`（记录本次运行实际选取/处理样本数、关键超参）
+  - 包含 `cp_strict / text_encoder / encoder_ckpt / r2_mode` 等关键信息
 
 ## 4.2 每个 case 的核心产物
 
@@ -165,6 +172,7 @@ python run_mini_experiment.py `
 python validate_stage0_4_outputs.py `
   --out_dir outputs_stage0_4 `
   --datasets ctrate,radgenome `
+  --expected_cases_map ctrate=450,radgenome=450 `
   --save_report outputs_stage0_4\validation_report.json
 ```
 
