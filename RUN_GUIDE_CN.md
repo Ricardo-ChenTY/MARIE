@@ -199,3 +199,40 @@ python validate_stage0_4_outputs.py `
 
 4. `.npy` spacing 不准确  
 当前默认 `(1,1,1)` mm；如要真实 mm，请用带元数据的医学影像格式。
+
+---
+
+## 8. R2 Sweep Quick Start (50/50, CP strict)
+
+Use this when you want to test how `r2_min_support_ratio` affects violations before full 450/450.
+
+1. New CLI args in `run_mini_experiment.py`:
+- `--r2_mode auto|ratio|max_iou` (default `auto`)
+- `--r2_min_support_ratio <float in (0,1]>`
+
+2. Recommended scan values:
+- `1.0` (current strict baseline)
+- `0.8`
+- `0.6`
+
+3. Colab one-shot sweep script:
+
+```bash
+bash Scripts/run_r2_sweep_50_cp_strict_colab.sh
+```
+
+4. Output folders:
+- `/content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict/r2_ratio_1.0`
+- `/content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict/r2_ratio_0.8`
+- `/content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict/r2_ratio_0.6`
+
+5. Promotion rule to 450/450:
+- pick the ratio with lower `violation_sentence_rate` and stable R1/R5 (no obvious explosion).
+
+6. Summarize sweep results quickly:
+
+```bash
+python Scripts/summarize_r2_sweep.py \
+  --sweep_root /content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict \
+  --save_csv /content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict/sweep_summary.csv
+```

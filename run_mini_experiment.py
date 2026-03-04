@@ -146,6 +146,19 @@ def main() -> None:
     parser.add_argument("--lambda_spatial", type=float, default=0.3)
     parser.add_argument("--tau_iou", type=float, default=0.1)
     parser.add_argument("--beta", type=float, default=0.1)
+    parser.add_argument(
+        "--r2_mode",
+        type=str,
+        default="auto",
+        choices=("auto", "ratio", "max_iou"),
+        help="Verifier R2 mode. auto follows current defaults/cp_strict behavior.",
+    )
+    parser.add_argument(
+        "--r2_min_support_ratio",
+        type=float,
+        default=None,
+        help="R2 support ratio threshold in ratio mode (recommended scan: 1.0/0.8/0.6).",
+    )
     parser.add_argument("--text_encoder", type=str, default="hash", help="hash | semantic")
     parser.add_argument(
         "--text_encoder_model",
@@ -201,16 +214,28 @@ def main() -> None:
     cfg.router.k_per_sentence = int(args.k_per_sentence)
     cfg.router.lambda_spatial = float(args.lambda_spatial)
     cfg.verifier.tau_anatomy_iou = float(args.tau_iou)
+    if args.r2_mode == "ratio":
+        cfg.verifier.use_max_iou_for_r2 = False
+    elif args.r2_mode == "max_iou":
+        cfg.verifier.use_max_iou_for_r2 = True
+    if args.r2_min_support_ratio is not None:
+        r2_ratio = float(args.r2_min_support_ratio)
+        if not (0.0 < r2_ratio <= 1.0):
+            raise ValueError(f"--r2_min_support_ratio must be in (0, 1], got {r2_ratio}")
+        cfg.verifier.r2_min_support_ratio = r2_ratio
 
     text_encoder_mode = str(args.text_encoder).strip().lower()
     if args.cp_strict:
         if not args.encoder_ckpt:
             raise ValueError("CP strict mode requires --encoder_ckpt for SwinUNETR.")
+        if args.r2_mode == "max_iou":
+            raise ValueError("CP strict mode does not allow --r2_mode=max_iou; use ratio mode.")
         if text_encoder_mode in ("hash", "deterministic"):
             text_encoder_mode = "semantic"
             print("[CP strict] text_encoder=hash is overridden to semantic.")
         cfg.verifier.use_max_iou_for_r2 = False
-        cfg.verifier.r2_min_support_ratio = 1.0
+        if args.r2_min_support_ratio is None:
+            cfg.verifier.r2_min_support_ratio = 1.0
 
     text_encoder = make_text_encoder(
         encoder_type=text_encoder_mode,
