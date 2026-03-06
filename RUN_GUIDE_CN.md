@@ -319,6 +319,43 @@ python run_mini_experiment.py \
   --r2_min_support_ratio <sweep 确定的最优值>
 ```
 
+### 9.3.1 可选：R5 Fallback 开关对比
+
+全量跑完成后，如需量化 R5 Negation Fallback 的贡献，可以用同样的参数再跑一次，
+只加 `--r5_fallback_lexicon false`：
+
+```bash
+python run_mini_experiment.py \
+  --ctrate_csv "/path/to/ctrate_manifest.csv" \
+  --radgenome_csv "/path/to/radgenome_manifest.csv" \
+  --out_dir outputs_stage0_4_450_128_r5off \
+  --max_cases 450 \
+  --expected_cases_per_dataset 450 \
+  --cp_strict \
+  --encoder_ckpt "/path/to/swinunetr.ckpt" \
+  --text_encoder semantic \
+  --text_encoder_model sentence-transformers/all-MiniLM-L6-v2 \
+  --text_encoder_device cuda \
+  --device cuda \
+  --token_budget_b 64 \
+  --k_per_sentence 8 \
+  --lambda_spatial 0.3 \
+  --tau_iou <同上> \
+  --beta 0.1 \
+  --r2_mode ratio \
+  --r2_min_support_ratio <同上> \
+  --r5_fallback_lexicon false
+```
+
+对比两次输出的 summary，重点看：
+
+- `R5_NEGATION` 计数：从多少降到 0（量化 R5 贡献）
+- `violation_sentence_rate`：总体下降幅度
+- `R1/R2/R4`：应基本不变（确认 R5 与其他规则独立）
+
+> 汇总脚本 `summarize_r2_sweep.py` 当前不读 `r5_fallback_lexicon` 字段。
+> 如需在同一张表里对比 R5 开/关结果，后续可在汇总表中新增该列。
+
 ### 9.4 验收
 
 ```bash
