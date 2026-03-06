@@ -202,37 +202,138 @@ python validate_stage0_4_outputs.py `
 
 ---
 
-## 8. R2 Sweep Quick Start (50/50, CP strict)
+## 8. R2 Sweep Quick Start（50/50，CP strict）
 
-Use this when you want to test how `r2_min_support_ratio` affects violations before full 450/450.
+先做 50-case 参数扫描，确认参数区间后再上 450/450 全量，避免浪费算力。
 
-1. New CLI args in `run_mini_experiment.py`:
-- `--r2_mode auto|ratio|max_iou` (default `auto`)
-- `--r2_min_support_ratio <float in (0,1]>`
+### 扫描维度（2 × 3 = 6 组）
 
-2. Recommended scan values:
-- `1.0` (current strict baseline)
-- `0.8`
-- `0.6`
+| 参数 | 扫描值 | 说明 |
+|------|--------|------|
+| `tau_iou` | 0.10, 0.05 | 单个 token 被认为"命中"解剖区域的 IoU 下限 |
+| `r2_min_support_ratio` | 1.0, 0.8, 0.6 | cited tokens 中命中比例的最低要求 |
 
-3. Colab one-shot sweep script:
+> **为什么用 64^3 做 sweep**：IoU = token_vol / anatomy_vol，分子分母同比例
+> 缩放，64^3 和 128^3 下 tau 最优区间相同。速度快 4-8x，结论可直接用于 128^3 主实验。
+
+### 一键跑（Colab 或 5090 本地）
 
 ```bash
 bash Scripts/run_r2_sweep_50_cp_strict_colab.sh
 ```
 
-4. Output folders:
-- `/content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict/r2_ratio_1.0`
-- `/content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict/r2_ratio_0.8`
-- `/content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict/r2_ratio_0.6`
+输出目录结构：`r2_tau{t}_ratio_{r}/`，例如：
+- `r2_taut010_ratio_1.0/`
+- `r2_taut010_ratio_0.8/`
+- `r2_taut005_ratio_0.6/`
+- ...
 
-5. Promotion rule to 450/450:
-- pick the ratio with lower `violation_sentence_rate` and stable R1/R5 (no obvious explosion).
-
-6. Summarize sweep results quickly:
+### 汇总结果
 
 ```bash
 python Scripts/summarize_r2_sweep.py \
   --sweep_root /content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict \
+  --glob "r2_tau*_ratio_*" \
   --save_csv /content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict/sweep_summary.csv
 ```
+
+汇总表按 `tau_iou` 和 `r2_min_support_ratio` 排序，观察 `violation_sentence_rate`
+和 `R2_ANATOMY` 的变化趋势，选出下降明显且 R1/R5 稳定的参数组合，用于第 9 节全量跑。
+
+---
+
+## 9. 本地 RTX 5090 运行指南
+
+### 9.1 环境准备
+
+```bash
+# 确认 GPU
+nvidia-smi
+
+# 安装依赖（推荐 conda）
+conda env create -f environment.yaml
+conda activate provetok
+
+# 安装 sentence-transformers（semantic encoder 必需）
+pip install sentence-transformers
+```
+
+首次运行 semantic encoder 会自动下载 `all-MiniLM-L6-v2`（约 90MB），之后会缓存。
+
+### 9.2 先跑 R2 sweep（64^3，确认参数）
+
+在本地把 `run_r2_sweep_50_cp_strict_colab.sh` 里的路径替换成本地路径后直接跑，
+或手动执行：
+
+```bash
+CTRATE_CSV="/path/to/ctrate_manifest.csv"
+RADGENOME_CSV="/path/to/radgenome_manifest.csv"
+ENCODER_CKPT="/path/to/swinunetr.ckpt"
+OUT_ROOT="outputs_r2sweep_50"
+
+python run_mini_experiment.py \
+  --ctrate_csv "${CTRATE_CSV}" \
+  --radgenome_csv "${RADGENOME_CSV}" \
+  --out_dir "${OUT_ROOT}/r2_taut010_ratio_0.8" \
+  --max_cases 50 \
+  --expected_cases_per_dataset 50 \
+  --cp_strict \
+  --encoder_ckpt "${ENCODER_CKPT}" \
+  --text_encoder semantic \
+  --text_encoder_model sentence-transformers/all-MiniLM-L6-v2 \
+  --text_encoder_device cuda \
+  --device cuda \
+  --resize_d 64 --resize_h 64 --resize_w 64 \
+  --token_budget_b 64 \
+  --k_per_sentence 8 \
+  --lambda_spatial 0.3 \
+  --tau_iou 0.10 \
+  --beta 0.1 \
+  --r2_mode ratio \
+  --r2_min_support_ratio 0.8
+```
+
+### 9.3 全量跑（128^3，450/450）
+
+sweep 确定参数后，把 tau 和 ratio 换成最优值，去掉 resize 参数（默认 128^3）：
+
+```bash
+python run_mini_experiment.py \
+  --ctrate_csv "/path/to/ctrate_manifest.csv" \
+  --radgenome_csv "/path/to/radgenome_manifest.csv" \
+  --out_dir outputs_stage0_4_450_128 \
+  --max_cases 450 \
+  --expected_cases_per_dataset 450 \
+  --cp_strict \
+  --encoder_ckpt "/path/to/swinunetr.ckpt" \
+  --text_encoder semantic \
+  --text_encoder_model sentence-transformers/all-MiniLM-L6-v2 \
+  --text_encoder_device cuda \
+  --device cuda \
+  --token_budget_b 64 \
+  --k_per_sentence 8 \
+  --lambda_spatial 0.3 \
+  --tau_iou <sweep 确定的最优值> \
+  --beta 0.1 \
+  --r2_mode ratio \
+  --r2_min_support_ratio <sweep 确定的最优值>
+```
+
+### 9.4 验收
+
+```bash
+python validate_stage0_4_outputs.py \
+  --out_dir outputs_stage0_4_450_128 \
+  --datasets ctrate,radgenome \
+  --expected_cases_map ctrate=450,radgenome=450 \
+  --save_report outputs_stage0_4_450_128/validation_report.json
+```
+
+### 9.5 常见问题
+
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| `sentence-transformers` 下载慢 | 首次下载模型 | 挂 VPN 或提前下载放到本地后用 `--text_encoder_model /path/to/model` |
+| 显存不足（128^3） | 5090 有 32GB 不太可能，但批量跑时注意 | 加 `--device cpu` 降级排查 |
+| `expected_cases` 不匹配 | manifest 行数不足 | 去掉 `--expected_cases_per_dataset` 或检查 manifest |
+| sweep 结果目录找不到 | glob 旧命名 `r2_ratio_*` | 改为 `--glob "r2_tau*_ratio_*"` |

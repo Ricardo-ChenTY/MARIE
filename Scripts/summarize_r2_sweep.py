@@ -54,6 +54,7 @@ def summarize_run(run_dir: Path) -> Dict[str, object]:
 
     return {
         "run_dir": str(run_dir),
+        "tau_iou": run_meta.get("tau_iou"),
         "r2_mode": run_meta.get("r2_mode"),
         "r2_min_support_ratio": run_meta.get("r2_min_support_ratio"),
         "cp_strict": run_meta.get("cp_strict"),
@@ -76,13 +77,13 @@ def summarize_run(run_dir: Path) -> Dict[str, object]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Summarize R2 sweep run folders (r2_ratio_*)")
-    parser.add_argument("--sweep_root", type=str, required=True, help="Root folder containing r2_ratio_* run dirs.")
+    parser = argparse.ArgumentParser(description="Summarize R2 sweep run folders (r2_tau*_ratio_*)")
+    parser.add_argument("--sweep_root", type=str, required=True, help="Root folder containing r2_tau*_ratio_* run dirs.")
     parser.add_argument(
         "--glob",
         type=str,
-        default="r2_ratio_*",
-        help="Subdir glob under sweep_root. Default: r2_ratio_*",
+        default="r2_tau*_ratio_*",
+        help="Subdir glob under sweep_root. Default: r2_tau*_ratio_*",
     )
     parser.add_argument("--save_csv", type=str, default=None, help="Optional output CSV path.")
     args = parser.parse_args()
@@ -93,7 +94,7 @@ def main() -> None:
         raise FileNotFoundError(f"No run dirs found under {root} with glob={args.glob}")
 
     rows = [summarize_run(r) for r in run_dirs]
-    df = pd.DataFrame(rows).sort_values(by=["r2_min_support_ratio", "run_dir"], ascending=[False, True])
+    df = pd.DataFrame(rows).sort_values(by=["tau_iou", "r2_min_support_ratio", "run_dir"], ascending=[False, False, True])
     print(df.to_string(index=False))
 
     if args.save_csv:
