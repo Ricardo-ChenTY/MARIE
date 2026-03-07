@@ -4,7 +4,109 @@
 
 ---
 
-## 背景：450-case Smoke Run 诊断结论
+## 第二轮诊断：50-case Semantic Encoder Sweep 结论
+
+在第一轮修正（hash→semantic encoder）后跑了 50-case R2 sweep（6 组），
+新增对 450-case 旧跑（hash encoder）与新 50-case 跑（semantic encoder）的
+逐规则对比分析。诊断结论如下：
+
+### 新增根因 1：R4_SIZE 阈值未校准（近乎全量触发）
+
+`_expected_volume_range` 返回的 `(0.0, 2.0e4)` 是绝对体素数（针对小 findings），
+但 Verifier 检查的是 **k=8 cited tokens 的 union bbox 体积**（包围所有引用
+token 的最小包围盒）。k=8 分散 token 的 union bbox 轻松超过 20,000 voxels，
+即使 findings 确实很小。此阈值从未针对真实 token 粒度做过校准，是 placeholder。
+
+> 修正：新增 `--r4_disabled` 标志暂时关闭 R4，先隔离其干扰，后续单独校准阈值。
+
+### 新增根因 2：R5 Negation Fallback 制造假阳性（已量化）
+
+所有 token 的 `negation_conflict` 硬编码为 0.0，永远走 fallback 分支，
+导致含 negation 词 + positive finding 词的正常句（如"No effusion"）全部触发 R5。
+Semantic encoder 对此无改善。
+
+> 修正：新增 `--r5_fallback_disabled` 标志，可独立关闭 fallback，量化 R5 贡献。
+
+### R2 max_iou 模式解锁
+
+现有代码已实现 `--r2_mode max_iou`（只要 max(IoU) ≥ tau 即通过，比 ratio 宽松），
+但之前被 `cp_strict` 封死（raise ValueError）。
+
+> 修正：删除该限制，`cp_strict + max_iou` 可共存。
+> 新增 `Scripts/run_r2_maxiou_sweep.sh`，扫描 tau ∈ {0.10, 0.05, 0.02}。
+
+### Semantic Encoder 效果量化
+
+对比旧 450-case（hash）vs 新 50-case（semantic）逐规则违规率：
+
+| 规则 | Hash Encoder | Semantic Encoder | 变化 |
+|------|-------------|-----------------|------|
+| R1_LATERALITY | 27.9% | 14.9% | **−13 pp（主要改善）** |
+| R2_ANATOMY | 36.9% | 33.6% | −3 pp（轻微） |
+| R4_SIZE | ~65% | ~65% | 无变化（阈值 bug） |
+| R5_NEGATION | ~30% | ~30% | 无变化（fallback bug） |
+
+R1 改善明显（routing 到正确侧），R2 改善很小（token 粒度 vs 解剖区域 IoU
+结构性问题），R4/R5 均为假阳性。
+
+---
+
+## 第二轮修改清单
+
+### 1) `ProveTok_Main_experiment/config.py`
+
+- `VerifierConfig` 新增字段 `r4_disabled: bool = False`
+
+### 2) `ProveTok_Main_experiment/stage4_verifier.py`
+
+- R4 块加守卫：`if not self.cfg.r4_disabled and plan.expected_volume_range and cited:`
+
+### 3) `run_mini_experiment.py`
+
+- 新增 CLI 参数 `--r4_disabled`、`--r5_fallback_disabled`
+- cfg 装配处相应设置 `cfg.verifier.r4_disabled` 和 `cfg.verifier.r5_fallback_lexicon`
+- `run_meta.json` 新增 `r4_disabled`、`r5_fallback_disabled` 字段
+- 删除 `cp_strict + max_iou` 互斥限制
+
+### 4) `Scripts/run_r2_maxiou_sweep.sh`（新增）
+
+- R2 max_iou 模式 50-case sweep，tau ∈ {0.10, 0.05, 0.02}
+- 默认带 `--r4_disabled` 隔离 R4 干扰
+
+---
+
+## 推荐实验顺序（更新）
+
+```
+第一步：R4/R5 隔离验证（50-case，快速）
+  在已有最佳 ratio 组合上加 --r4_disabled --r5_fallback_disabled
+  对比前后 violation_sentence_rate，确认 R4/R5 假阳性贡献
+
+第二步：R2 max_iou sweep（50-case，3 组 tau）
+  bash Scripts/run_r2_maxiou_sweep.sh
+  对比 ratio 模式，选择更合适的 R2 指标
+
+第三步：450/450 全量（128^3，5090 本地）
+  用确定参数 + --r4_disabled + 视情况 --r5_fallback_disabled
+  参考 RUN_GUIDE_CN.md 第 10 节
+```
+
+---
+
+## 关键文件清单（更新）
+
+- `run_mini_experiment.py`（本次修改）
+- `ProveTok_Main_experiment/config.py`（本次修改）
+- `ProveTok_Main_experiment/stage4_verifier.py`（本次修改）
+- `Scripts/run_r2_sweep_50_cp_strict_colab.sh`
+- `Scripts/run_r2_maxiou_sweep.sh`（本次新增）
+- `Scripts/summarize_r2_sweep.py`
+- `RUN_GUIDE_CN.md`（本次新增第 10 节）
+- `Smoke_analysis/OUTPUT_ANALYSIS_COLAB.ipynb`
+
+---
+
+## 背景：450-case Smoke Run 诊断结论（第一轮）
 
 首次 450/450 全量跑后违规率极高（ctrate 73%、radgenome 71%），
 几乎每个 case 的全部句子都触发违规。诊断确认根因如下：

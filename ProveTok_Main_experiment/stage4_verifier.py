@@ -163,7 +163,7 @@ class Verifier:
                 )
 
         # R4 size/range consistency
-        if plan.expected_volume_range and cited:
+        if not self.cfg.r4_disabled and plan.expected_volume_range and cited:
             union_box = BBox3D.union_all([tok.bbox for tok in cited])
             if union_box is not None:
                 v = union_box.volume()

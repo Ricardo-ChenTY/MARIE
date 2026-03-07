@@ -52,6 +52,7 @@ class VerifierConfig:
     lateral_tolerance: float = 0.0
     r5_fallback_lexicon: bool = True
     r5_fallback_severity: float = 0.5
+    r4_disabled: bool = False
 
 
 @dataclass

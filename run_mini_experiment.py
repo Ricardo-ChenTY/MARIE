@@ -189,13 +189,8 @@ def main() -> None:
         default=0,
         help="If >0, require selected case count per dataset to equal this value (e.g. 450).",
     )
-    parser.add_argument(
-        "--r5_fallback_lexicon",
-        type=str,
-        default="true",
-        choices=("true", "false"),
-        help="Enable R5 negation fallback lexicon (default: true). Set false to disable for ablation.",
-    )
+    parser.add_argument("--r4_disabled", action="store_true", help="Disable R4_SIZE check (union bbox threshold uncalibrated).")
+    parser.add_argument("--r5_fallback_disabled", action="store_true", help="Disable R5 negation fallback lexicon.")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -230,15 +225,16 @@ def main() -> None:
         if not (0.0 < r2_ratio <= 1.0):
             raise ValueError(f"--r2_min_support_ratio must be in (0, 1], got {r2_ratio}")
         cfg.verifier.r2_min_support_ratio = r2_ratio
+    if args.r4_disabled:
+        cfg.verifier.r4_disabled = True
+    if args.r5_fallback_disabled:
+        cfg.verifier.r5_fallback_lexicon = False
 
-    cfg.verifier.r5_fallback_lexicon = (args.r5_fallback_lexicon.lower() == "true")
 
     text_encoder_mode = str(args.text_encoder).strip().lower()
     if args.cp_strict:
         if not args.encoder_ckpt:
             raise ValueError("CP strict mode requires --encoder_ckpt for SwinUNETR.")
-        if args.r2_mode == "max_iou":
-            raise ValueError("CP strict mode does not allow --r2_mode=max_iou; use ratio mode.")
         if text_encoder_mode in ("hash", "deterministic"):
             text_encoder_mode = "semantic"
             print("[CP strict] text_encoder=hash is overridden to semantic.")
@@ -303,7 +299,8 @@ def main() -> None:
         "encoder_ckpt": str(args.encoder_ckpt) if args.encoder_ckpt else None,
         "r2_mode": "max_iou" if cfg.verifier.use_max_iou_for_r2 else "ratio",
         "r2_min_support_ratio": float(cfg.verifier.r2_min_support_ratio),
-        "r5_fallback_lexicon": bool(cfg.verifier.r5_fallback_lexicon),
+        "r4_disabled": bool(args.r4_disabled),
+        "r5_fallback_disabled": bool(args.r5_fallback_disabled),
     }
     with (out_dir / "run_meta.json").open("w", encoding="utf-8") as f:
         json.dump(run_meta, f, ensure_ascii=False, indent=2)
