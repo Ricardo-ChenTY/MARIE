@@ -186,6 +186,90 @@ python Scripts/summarize_r2_sweep.py \
 
 ---
 
+## 9. 本地 Windows 运行指南（协作者用）
+
+适用环境：Windows + PowerShell + RTX GPU（测试于 RTX 5090）。
+
+### 变量定义
+
+```powershell
+$CTRATE_CSV    = "C:\path\to\ctrate_manifest.csv"
+$RADGENOME_CSV = "C:\path\to\radgenome_manifest.csv"
+$ENCODER_CKPT  = "C:\path\to\swinunetr.ckpt"
+$OUT_ROOT      = "C:\path\to\outputs"
+```
+
+### 9.1 50-case 验证（推荐先跑，64³）
+
+```powershell
+python run_mini_experiment.py `
+  --ctrate_csv $CTRATE_CSV `
+  --radgenome_csv $RADGENOME_CSV `
+  --out_dir "$OUT_ROOT\r2_taut005_ratio_0.8_nor4r5_skip_bilateral" `
+  --max_cases 50 `
+  --expected_cases_per_dataset 50 `
+  --cp_strict `
+  --encoder_ckpt $ENCODER_CKPT `
+  --text_encoder semantic `
+  --text_encoder_model sentence-transformers/all-MiniLM-L6-v2 `
+  --text_encoder_device cuda `
+  --device cuda `
+  --resize_d 64 --resize_h 64 --resize_w 64 `
+  --token_budget_b 64 `
+  --k_per_sentence 8 `
+  --lambda_spatial 0.3 `
+  --tau_iou 0.05 `
+  --beta 0.1 `
+  --r2_mode ratio `
+  --r2_min_support_ratio 0.8 `
+  --r4_disabled `
+  --r5_fallback_disabled `
+  --anatomy_spatial_routing `
+  --r2_skip_bilateral
+```
+
+### 9.2 450/450 全量跑（128³，主实验）
+
+```powershell
+python run_mini_experiment.py `
+  --ctrate_csv $CTRATE_CSV `
+  --radgenome_csv $RADGENOME_CSV `
+  --out_dir "$OUT_ROOT\outputs_stage0_4_450_128" `
+  --max_cases 450 `
+  --expected_cases_per_dataset 450 `
+  --cp_strict `
+  --encoder_ckpt $ENCODER_CKPT `
+  --text_encoder semantic `
+  --text_encoder_model sentence-transformers/all-MiniLM-L6-v2 `
+  --text_encoder_device cuda `
+  --device cuda `
+  --token_budget_b 64 `
+  --k_per_sentence 8 `
+  --lambda_spatial 0.3 `
+  --tau_iou 0.05 `
+  --beta 0.1 `
+  --r2_mode ratio `
+  --r2_min_support_ratio 0.8 `
+  --r4_disabled `
+  --r5_fallback_disabled `
+  --anatomy_spatial_routing `
+  --r2_skip_bilateral
+```
+
+> 128³ 不加 `--resize_d/h/w`（默认即为 128），显存不足时可加 `--resize_d 64 --resize_h 64 --resize_w 64`。
+
+### 9.3 验收
+
+```powershell
+python validate_stage0_4_outputs.py `
+  --out_dir "$OUT_ROOT\outputs_stage0_4_450_128" `
+  --datasets ctrate,radgenome `
+  --expected_cases_map ctrate=450,radgenome=450 `
+  --save_report "$OUT_ROOT\outputs_stage0_4_450_128\validation_report.json"
+```
+
+---
+
 ## 8. 常见问题
 
 | 问题 | 解决 |
