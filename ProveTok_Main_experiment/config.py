@@ -40,6 +40,7 @@ class VerifierConfig:
     tau_anatomy_iou: float = 0.1
     r2_min_support_ratio: float = 1.0
     use_max_iou_for_r2: bool = False
+    r4_disabled: bool = False
     severity_by_rule: Dict[str, float] = field(
         default_factory=lambda: {
             "R1_LATERALITY": 1.0,
@@ -52,7 +53,6 @@ class VerifierConfig:
     lateral_tolerance: float = 0.0
     r5_fallback_lexicon: bool = True
     r5_fallback_severity: float = 0.5
-    r4_disabled: bool = False
 
 
 @dataclass

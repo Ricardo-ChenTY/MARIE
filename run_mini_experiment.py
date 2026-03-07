@@ -238,8 +238,9 @@ def main() -> None:
         if text_encoder_mode in ("hash", "deterministic"):
             text_encoder_mode = "semantic"
             print("[CP strict] text_encoder=hash is overridden to semantic.")
-        cfg.verifier.use_max_iou_for_r2 = False
-        if args.r2_min_support_ratio is None:
+        if args.r2_mode == "auto":
+            cfg.verifier.use_max_iou_for_r2 = False
+        if args.r2_mode != "max_iou" and args.r2_min_support_ratio is None:
             cfg.verifier.r2_min_support_ratio = 1.0
 
     text_encoder = make_text_encoder(
@@ -299,6 +300,7 @@ def main() -> None:
         "encoder_ckpt": str(args.encoder_ckpt) if args.encoder_ckpt else None,
         "r2_mode": "max_iou" if cfg.verifier.use_max_iou_for_r2 else "ratio",
         "r2_min_support_ratio": float(cfg.verifier.r2_min_support_ratio),
+        "r5_fallback_lexicon": bool(cfg.verifier.r5_fallback_lexicon),
         "r4_disabled": bool(args.r4_disabled),
         "r5_fallback_disabled": bool(args.r5_fallback_disabled),
     }
