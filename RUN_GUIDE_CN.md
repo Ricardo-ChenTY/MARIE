@@ -1,94 +1,66 @@
-# ProveTok_ACM 运行说明（给协作者）
+# ProveTok_ACM 运行说明
 
-当前主流程：**Stage 0-4**（不调用 LLM 生成）。
+当前主流程：`Stage 0-4`，不调用 LLM 生成。
 
-## 1. 项目概述
+## 1. 当前锁定配置
 
-Stage 0-4 做四件事：
-1. Stage 0-2：确定性 token bank 构建（SwinUNETR + 八叉树分裂）
-2. Stage 3：Router（teacher-forcing，用参考报告句子做查询）
-3. Stage 4：Verifier 规则审计（R1-R5）
-4. Stage 6：结构化日志落盘（trace.jsonl，每例可追溯）
+这轮准备直接跑 `450/450` 主实验，推荐固定以下开关：
 
-关键入口：
-- `run_mini_experiment.py`：主运行脚本
-- `validate_stage0_4_outputs.py`：结果验收脚本
+- `--cp_strict`
+- `--r2_mode ratio`
+- `--r2_min_support_ratio 0.8`
+- `--tau_iou 0.05`
+- `--anatomy_spatial_routing`
+- `--r2_skip_bilateral`
+- `--r4_disabled`
+- `--r5_fallback_disabled`
 
----
+对应的 `50/50` smoke 已通过：
 
-## 2. 数据接口
+- `Validated: 100, Passed: 100, Failed: 0`
+- 总违规句率：`42.00% -> 17.375%`
+- `R2_ANATOMY: 239 -> 42`
+- `R1_LATERALITY: 100 -> 100`
 
-需要两个 manifest CSV（CT-RATE / RadGenome 各一个）。
+结论：这套配置已经够资格放大到 `450/450`。
 
-必需列：
-- `case_id`：病例唯一 ID
-- `volume_path`：体数据路径（医学影像文件或 `.npy`）
-- `report_text`：参考报告文本
+## 2. 必需输入
 
----
+需要两个 manifest CSV：
+
+- `ctrate_manifest.csv`
+- `radgenome_manifest.csv`
+
+每个 CSV 至少包含：
+
+- `case_id`
+- `volume_path`
+- `report_text`
+
+还需要一个可加载的 SwinUNETR checkpoint：
+
+- `SwinUNETR(in_channels=1, out_channels=2, feature_size=48)`
 
 ## 3. 环境准备
 
 ```bash
-# 确认 GPU
 nvidia-smi
 
 conda env create -f environment.yaml
 conda activate provetok
-
-# semantic encoder 必需
 pip install sentence-transformers
 ```
 
-首次运行 semantic encoder 会自动下载 `all-MiniLM-L6-v2`（约 90MB），之后缓存。
+## 4. 450/450 主实验命令
 
----
-
-## 4. 当前推荐运行命令
-
-### 变量定义（先设好路径）
+### 4.1 Linux / Colab Shell
 
 ```bash
 CTRATE_CSV="/path/to/ctrate_manifest.csv"
 RADGENOME_CSV="/path/to/radgenome_manifest.csv"
 ENCODER_CKPT="/path/to/swinunetr.ckpt"
 OUT_ROOT="/path/to/outputs"
-```
 
-### 4.1 50-case 验证（快速，推荐先跑）
-
-使用 64³ resize，关闭 R4/R5（阈值未校准 / fallback 假阳性），隔离真实 R1/R2 违规率：
-
-```bash
-python run_mini_experiment.py \
-  --ctrate_csv "${CTRATE_CSV}" \
-  --radgenome_csv "${RADGENOME_CSV}" \
-  --out_dir "${OUT_ROOT}/r2_taut005_ratio_0.8_nor4r5" \
-  --max_cases 50 \
-  --expected_cases_per_dataset 50 \
-  --cp_strict \
-  --encoder_ckpt "${ENCODER_CKPT}" \
-  --text_encoder semantic \
-  --text_encoder_model sentence-transformers/all-MiniLM-L6-v2 \
-  --text_encoder_device cuda \
-  --device cuda \
-  --resize_d 64 --resize_h 64 --resize_w 64 \
-  --token_budget_b 64 \
-  --k_per_sentence 8 \
-  --lambda_spatial 0.3 \
-  --tau_iou 0.05 \
-  --beta 0.1 \
-  --r2_mode ratio \
-  --r2_min_support_ratio 0.8 \
-  --r4_disabled \
-  --r5_fallback_disabled \
-  --anatomy_spatial_routing \
-  --r2_skip_bilateral
-```
-
-### 4.2 450/450 全量跑（128³，主实验）
-
-```bash
 python run_mini_experiment.py \
   --ctrate_csv "${CTRATE_CSV}" \
   --radgenome_csv "${RADGENOME_CSV}" \
@@ -114,123 +86,14 @@ python run_mini_experiment.py \
   --r2_skip_bilateral
 ```
 
-> 128³ 不加 `--resize_d/h/w`（默认即为 128）。
-
-### 4.3 验收
-
-```bash
-python validate_stage0_4_outputs.py \
-  --out_dir "${OUT_ROOT}/outputs_stage0_4_450_128" \
-  --datasets ctrate,radgenome \
-  --expected_cases_map ctrate=450,radgenome=450 \
-  --save_report "${OUT_ROOT}/outputs_stage0_4_450_128/validation_report.json"
-```
-
----
-
-## 5. 输出文件说明
-
-所有输出在 `--out_dir` 下：
-
-```
-out_dir/
-  summary.csv                    # 全量汇总
-  ctrate_case_summary.csv
-  radgenome_case_summary.csv
-  run_meta.json                  # 本次运行参数记录
-  cases/
-    ctrate/<case_id>/
-      tokens.npy / tokens.pt / tokens.json
-      bank_meta.json
-      trace.jsonl                # 逐句路由 + verifier 结果
-    radgenome/<case_id>/
-      ...
-```
-
-**trace.jsonl 格式：**
-- 第 1 行：`{"type": "case_meta", "B": ..., "k": ..., "tau_IoU": ...}`
-- 后续行：`{"type": "sentence", "sentence_text": ..., "anatomy_keyword": ..., "topk_token_ids": [...], "violations": [...]}`
-
----
-
-## 6. 关键参数说明
-
-| 参数 | 推荐值 | 说明 |
-|------|--------|------|
-| `--tau_iou` | 0.05 | R2 IoU 阈值 |
-| `--r2_min_support_ratio` | 0.8 | cited tokens 中命中比例下限 |
-| `--r4_disabled` | 建议开启 | R4 union bbox 阈值未校准，开启避免假阳性 |
-| `--r5_fallback_disabled` | 建议开启 | R5 negation fallback 产生假阳性，开启隔离 |
-| `--r2_mode` | ratio | 可选 `max_iou`（更宽松，见下节） |
-| `--anatomy_spatial_routing` | 建议开启 | 有 anatomy keyword 的句子改用 IoU 主导路由，解决 w_proj 未训练导致的跨模态对齐缺失；预期 R2 从 33.6% 降至 15-20% |
-| `--r2_skip_bilateral` | 建议开启 | 跳过 bilateral 句子的 R2 检查（bilateral bbox = 整个 volume，token IoU 结构性 < tau，无法通过）；预期 R2 再降至 ~5%，总体从 42% 降至 ~14% |
-
----
-
-## 7. 可选：R2 max_iou sweep
-
-如果想对比 R2 max_iou 模式（只要最大 IoU ≥ tau 即通过）：
-
-```bash
-bash Scripts/run_r2_maxiou_sweep.sh
-```
-
-扫描 `tau_iou ∈ {0.10, 0.05, 0.02}`，输出到 Google Drive。汇总：
-
-```bash
-python Scripts/summarize_r2_sweep.py \
-  --sweep_root /content/drive/MyDrive/Data/outputs_stage0_4_r2maxiou_sweep_50 \
-  --glob "r2_maxiou_tau*" \
-  --save_csv .../maxiou_sweep_summary.csv
-```
-
----
-
-## 9. 本地 Windows 运行指南（协作者用）
-
-适用环境：Windows + PowerShell + RTX GPU（测试于 RTX 5090）。
-
-### 变量定义
+### 4.2 Windows PowerShell
 
 ```powershell
 $CTRATE_CSV    = "C:\path\to\ctrate_manifest.csv"
 $RADGENOME_CSV = "C:\path\to\radgenome_manifest.csv"
 $ENCODER_CKPT  = "C:\path\to\swinunetr.ckpt"
 $OUT_ROOT      = "C:\path\to\outputs"
-```
 
-### 9.1 50-case 验证（推荐先跑，64³）
-
-```powershell
-python run_mini_experiment.py `
-  --ctrate_csv $CTRATE_CSV `
-  --radgenome_csv $RADGENOME_CSV `
-  --out_dir "$OUT_ROOT\r2_taut005_ratio_0.8_nor4r5_skip_bilateral" `
-  --max_cases 50 `
-  --expected_cases_per_dataset 50 `
-  --cp_strict `
-  --encoder_ckpt $ENCODER_CKPT `
-  --text_encoder semantic `
-  --text_encoder_model sentence-transformers/all-MiniLM-L6-v2 `
-  --text_encoder_device cuda `
-  --device cuda `
-  --resize_d 64 --resize_h 64 --resize_w 64 `
-  --token_budget_b 64 `
-  --k_per_sentence 8 `
-  --lambda_spatial 0.3 `
-  --tau_iou 0.05 `
-  --beta 0.1 `
-  --r2_mode ratio `
-  --r2_min_support_ratio 0.8 `
-  --r4_disabled `
-  --r5_fallback_disabled `
-  --anatomy_spatial_routing `
-  --r2_skip_bilateral
-```
-
-### 9.2 450/450 全量跑（128³，主实验）
-
-```powershell
 python run_mini_experiment.py `
   --ctrate_csv $CTRATE_CSV `
   --radgenome_csv $RADGENOME_CSV `
@@ -256,25 +119,83 @@ python run_mini_experiment.py `
   --r2_skip_bilateral
 ```
 
-> 128³ 不加 `--resize_d/h/w`（默认即为 128），显存不足时可加 `--resize_d 64 --resize_h 64 --resize_w 64`。
+## 5. 结构验收
 
-### 9.3 验收
-
-```powershell
-python validate_stage0_4_outputs.py `
-  --out_dir "$OUT_ROOT\outputs_stage0_4_450_128" `
-  --datasets ctrate,radgenome `
-  --expected_cases_map ctrate=450,radgenome=450 `
-  --save_report "$OUT_ROOT\outputs_stage0_4_450_128\validation_report.json"
+```bash
+python validate_stage0_4_outputs.py \
+  --out_dir "${OUT_ROOT}/outputs_stage0_4_450_128" \
+  --datasets ctrate,radgenome \
+  --expected_cases_map ctrate=450,radgenome=450 \
+  --save_report "${OUT_ROOT}/outputs_stage0_4_450_128/validation_report.json"
 ```
 
----
+通过标准：
 
-## 8. 常见问题
+- `Validated cases: 900`
+- `Failed: 0`
+- `run_meta.json` 中 `cp_strict = true`
+- `run_meta.json` 中 `ctrate.selected_rows = 450`
+- `run_meta.json` 中 `radgenome.selected_rows = 450`
 
-| 问题 | 解决 |
-|------|------|
-| `sentence-transformers` 下载慢 | 挂 VPN 或提前下载后用 `--text_encoder_model /path/to/model` |
-| 显存不足 | `--device cpu` 或减小 `--resize_d/h/w` |
-| `expected_cases` 不匹配 | 去掉 `--expected_cases_per_dataset` 或检查 manifest 行数 |
-| 结果分析 | 打开 `Smoke_analysis/OUTPUT_ANALYSIS_COLAB.ipynb` 在 Colab 跑 |
+## 6. Colab 验收 Notebook
+
+使用：
+
+- [OUTPUT_ANALYSIS_COLAB.ipynb](c:\Users\34228\Desktop\ACM\Smoke_analysis\OUTPUT_ANALYSIS_COLAB.ipynb)
+
+你朋友在 Colab 里只需要：
+
+1. 挂载 Google Drive
+2. 打开 notebook
+3. 把 `OUT_DIR` 改成 `450/450` 输出目录
+4. 运行全部 cells
+
+notebook 现在默认按 `450/450` 口径验收，会检查：
+
+- `expected_cases_map = ctrate=450,radgenome=450`
+- `validation_report.json` 是否全过
+- `run_meta.json` 的关键开关是否符合主实验配置
+- `summary.csv`、`cases/*/*/trace.jsonl` 是否能正常汇总
+
+notebook 会导出：
+
+- `analysis_exports/dataset_aggregate.csv`
+- `analysis_exports/sentence_violation_rate.csv`
+- `analysis_exports/rule_violation_count.csv`
+- `analysis_exports/abnormal_cases_ranked.csv`
+- `analysis_exports/sentence_detail.csv`
+
+## 7. 结果怎么看
+
+硬性要求：
+
+- 结构验收通过
+- 样本数是 `450/450`
+- `R1` 不出现明显反弹
+- `R2` 相比旧基线 `2651` 明显下降
+
+软性目标：
+
+- 总体 `violation_sentence_rate` 远低于旧基线 `0.721`
+- 如果最终落在 `0.15 ~ 0.25`，说明 `50/50` smoke 的收益基本稳定迁移到了全量
+- 如果高于 `0.35`，要回头检查数据分布漂移或参数/规则联动问题
+
+## 8. 输出目录最小交付物
+
+重跑结束后，至少保留：
+
+- `summary.csv`
+- `ctrate_case_summary.csv`
+- `radgenome_case_summary.csv`
+- `run_meta.json`
+- `validation_report.json`
+- `cases/*/*/trace.jsonl`
+
+如果只做分析，`cache/` 不是必需。
+
+## 9. 常见问题
+
+- `expected_cases_map` 不通过：先检查 manifest 是否真的各有 `450` 行。
+- `sentence-transformers` 下载慢：可提前缓存模型，或把 `--text_encoder_model` 指向本地目录。
+- 显存不足：可临时改成 `64^3` 验证，但主实验仍建议保留 `128^3`。
+- 只要做结果分析：直接用 notebook，不需要重跑主实验。

@@ -1,110 +1,104 @@
-﻿# Stage0-4 实验结果说明（最新覆盖版）
+# Stage0-4 结果验收说明
 
-更新日期：2026-03-04  
-范围：CT-RATE 450 + RadGenome 450（共 900 例）  
-口径：Stage0-4（无 LLM 生成）
+更新日期：2026-03-07
 
----
+本文档现在只服务于一个目标：验收 `450/450` 主实验结果。
 
-## 1. 本轮产出是什么
+## 1. 当前实验背景
 
-本轮分析基于输出目录中的聚合文件：
+旧基线的 `450/450` 结果较差：
+
+- 总体 `violation_sentence_rate ≈ 0.721`
+- `R2_ANATOMY = 2651`
+- `R1_LATERALITY = 2009`
+
+在加入以下配置后，`50/50` smoke 已明显改善：
+
+- `--r2_mode ratio`
+- `--r2_min_support_ratio 0.8`
+- `--tau_iou 0.05`
+- `--anatomy_spatial_routing`
+- `--r2_skip_bilateral`
+- `--r4_disabled`
+- `--r5_fallback_disabled`
+
+对应 smoke 结果：
+
+- `Validated: 100, Passed: 100, Failed: 0`
+- 总违规句率：`42.00% -> 17.375%`
+- `R2_ANATOMY: 239 -> 42`
+- `R1_LATERALITY: 100 -> 100`
+
+这就是当前放大到 `450/450` 的依据。
+
+## 2. 450/450 硬性验收标准
+
+必须同时满足：
+
+- `validation_report.json` 全通过
+- `Validated cases = 900`
+- `Failed = 0`
+- `run_meta.json` 中 `cp_strict = true`
+- `ctrate.selected_rows = 450`
+- `radgenome.selected_rows = 450`
+- `ctrate.processed_rows = 450`
+- `radgenome.processed_rows = 450`
+- `r2_skip_bilateral = true`
+- `anatomy_spatial_routing = true`
+- `r4_disabled = true`
+- `r5_fallback_disabled = true`
+
+如果上面有一条不满足，这轮结果就不应直接进报告。
+
+## 3. 450/450 软性目标
+
+这部分不是“一票否决”，但决定结果是否足够好：
+
+- 总体 `violation_sentence_rate` 明显低于旧基线 `0.721`
+- `R2_ANATOMY` 明显低于旧基线 `2651`
+- `R1_LATERALITY` 不要出现明显反弹
+
+建议用这个区间判断：
+
+- `0.15 ~ 0.25`：很好，说明 smoke 收益基本稳定迁移到全量
+- `0.25 ~ 0.35`：能接受，但要复查问题主要集中在哪条规则
+- `> 0.35`：不建议直接作为主结果，需要继续诊断
+
+## 4. 建议分析顺序
+
+先看：
+
+- `validation_report.json`
+- `run_meta.json`
+- `summary.csv`
+
+再看 notebook 导出的聚合文件：
 
 - `dataset_aggregate.csv`
 - `sentence_violation_rate.csv`
 - `rule_violation_count.csv`
 - `abnormal_cases_ranked.csv`
 
-这些文件用于做“流程是否成立 + 误差分布诊断”，不是最终论文结果。
+最后再抽查：
 
----
+- `cases/*/*/trace.jsonl`
 
-## 2. 关键结果（450/450）
+## 5. Colab Notebook 用法
 
-### 2.1 数据集级统计
+使用：
 
-- `ctrate`: 450 例，平均句子数 7.99，平均违规数 6.93
-- `radgenome`: 450 例，平均句子数 7.98，平均违规数 7.43
+- [OUTPUT_ANALYSIS_COLAB.ipynb](c:\Users\34228\Desktop\ACM\Smoke_analysis\OUTPUT_ANALYSIS_COLAB.ipynb)
 
-### 2.2 句级违规率
+现在这个 notebook 默认就是 `450/450` 验收口径：
 
-- `ctrate`: 3596 句中 2630 句有违规，违规率 `0.731`
-- `radgenome`: 3591 句中 2555 句有违规，违规率 `0.712`
-- 总体：7187 句中 5185 句有违规，总体约 `0.721`
+- 默认 `OUT_DIR` 指向 `outputs_stage0_4_450_128`
+- 结构验收强制 `expected_cases_map = ctrate=450,radgenome=450`
+- 会打印主实验状态检查
+- 会导出 `analysis_exports/*`
 
-### 2.3 规则贡献（按违规条数）
+## 6. 最小交付物
 
-- `R2_ANATOMY`: 2651（最高）
-- `R1_LATERALITY`: 2009
-- `R5_NEGATION`: 925
-- `R4_SIZE`: 879
-- `R3_DEPTH`: 0（当前基本未触发）
-
-### 2.4 异常 case 分布
-
-- `violation_ratio = 1.0` 的 case：54 / 900
-- `n_violation_sentences >= 7` 的 case：283 / 900
-- `violation_ratio` 中位数约 0.75，四分位上界约 0.875
-
----
-
-## 3. 结果解读（当前阶段）
-
-1. 流程已跑通：
-- 450/450 规模完成，可做系统性误差定位。
-
-2. 当前质量属于“可诊断、待优化”：
-- 句级违规率 > 0.70，偏高。
-- 主要矛盾集中在 `R2` 和 `R1`。
-
-3. 优先优化顺序：
-- 先 `R2_ANATOMY`（最大头）
-- 再 `R1_LATERALITY`
-- 然后修 `R5_NEGATION`
-- 同时补 `R3_DEPTH` 触发覆盖
-
----
-
-## 4. 下一步实验方案（已接入脚本）
-
-### 4.1 先做 50/50 的 R2 sweep
-
-目标：只调整 `r2_min_support_ratio`，观察是否能显著降低总体违规率且不引入副作用。
-
-推荐扫描：
-
-- `1.0`（当前严格基线）
-- `0.8`
-- `0.6`
-
-Colab 一键脚本：
-
-```bash
-bash Scripts/run_r2_sweep_50_cp_strict_colab.sh
-```
-
-汇总脚本：
-
-```bash
-python Scripts/summarize_r2_sweep.py \
-  --sweep_root /content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict \
-  --save_csv /content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict/sweep_summary.csv
-```
-
-### 4.2 决策门槛
-
-从 sweep 里选择进入 450/450 的配置时，建议满足：
-
-1. `violation_sentence_rate` 明显下降
-2. `R2` 下降明显
-3. `R1/R5` 不出现爆发式上升
-4. `validation_report` 结构验收通过
-
----
-
-## 5. 给协作同学的最小交付物
-
-重跑后至少交：
+你朋友跑完后，至少要给你：
 
 - `summary.csv`
 - `ctrate_case_summary.csv`
@@ -113,12 +107,14 @@ python Scripts/summarize_r2_sweep.py \
 - `validation_report.json`
 - `cases/*/*/trace.jsonl`
 
-如果是 strict 重跑，额外保留：
+如果只做结果分析，`cache/` 可以不传。
 
-- `ckpt_probe_report.json`
+## 7. 当前结论
 
----
+当前阶段不再需要继续做新的 `50/50` smoke 才能前进。
 
-## 6. 当前结论（一句话）
+下一步就是：
 
-这版 450/450 结果证明了 Stage0-4 流程可运行并可诊断，但违规率仍高；下一步应先用 R2 sweep 在小规模（50/50）上选稳态参数，再回到 450/450 复核。
+1. 用当前锁定配置直接跑 `450/450`
+2. 用 notebook 做结构验收和聚合分析
+3. 对照旧基线判断这轮是否已经足够进入报告
