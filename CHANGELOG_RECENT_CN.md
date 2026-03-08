@@ -2,6 +2,48 @@
 
 更新日期：2026-03-07
 
+## 第五轮改进：R1 优化（否定句豁免 + 中线解剖词豁免）
+
+### 背景
+
+450/450 全量运行显示 R1_LATERALITY 占总违规约 81%（1770/2190），且从 50-case（12.5%/sentence）到 450（24.6%/sentence）几乎翻倍。根因分析：
+
+1. **否定句误触发**：`"no left pleural effusion"` 中 `parse_laterality` 检测到 "left" → R1 触发，但否定句 cite 的是背景/正常组织 token，不要求在左侧，是 false positive。
+2. **中线解剖词误触发**：`mediastinum / trachea / aorta` 等结构天生跨中线，cited token 覆盖双侧，R1 必然触发，是结构性误报。
+
+### 改动
+
+**`ProveTok_Main_experiment/config.py`**
+
+- 新增 `r1_negation_exempt: bool = False`
+- 新增 `r1_skip_midline_keywords: set = field(default_factory=set)`
+
+**`ProveTok_Main_experiment/stage4_verifier.py`**
+
+- 在 R1 块前计算 `negated`（复用给 R5，去掉 R5 处的重复计算）
+- 新增 `r1_skipped` guard：`negation_exempt and negated` 或 `anatomy_keyword in r1_skip_midline_keywords`
+
+**`run_mini_experiment.py`**
+
+- 新增 `--r1_negation_exempt` flag
+- 新增 `--r1_skip_midline` flag（覆盖词表：mediastinum/trachea/carina/esophagus/aorta/spine/vertebra/sternum）
+- `run_meta.json` 记录两个新字段
+
+### 验证策略
+
+先在 50-case smoke 上跑回归：
+
+```bash
+python run_mini_experiment.py ... \
+  --r2_skip_bilateral \
+  --r1_negation_exempt \
+  --r1_skip_midline
+```
+
+预期：R1 明显下降（50-case 基线 100 → 目标 < 60），R2 保持稳定（~42）。回归通过后再上 450/450。
+
+---
+
 ## 本次更新做了什么
 
 这次没有继续改主实验逻辑，重点是把文档和分析入口统一到 `450/450` 主实验口径。

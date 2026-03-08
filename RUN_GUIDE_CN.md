@@ -12,17 +12,19 @@
 - `--tau_iou 0.05`
 - `--anatomy_spatial_routing`
 - `--r2_skip_bilateral`
+- `--r1_negation_exempt`
+- `--r1_skip_midline`
 - `--r4_disabled`
 - `--r5_fallback_disabled`
 
-对应的 `50/50` smoke 已通过：
+对应的 `50/50` smoke 已通过（含 R1 修复前）：
 
 - `Validated: 100, Passed: 100, Failed: 0`
-- 总违规句率：`42.00% -> 17.375%`
+- 总违规句率：`42.00% -> 17.375%`（skip bilateral 后）
 - `R2_ANATOMY: 239 -> 42`
 - `R1_LATERALITY: 100 -> 100`
 
-结论：这套配置已经够资格放大到 `450/450`。
+新增 R1 修复（`r1_negation_exempt` + `r1_skip_midline`）待 50-case 回归验证后锁定。
 
 ## 2. 必需输入
 
@@ -83,7 +85,9 @@ python run_mini_experiment.py \
   --r4_disabled \
   --r5_fallback_disabled \
   --anatomy_spatial_routing \
-  --r2_skip_bilateral
+  --r2_skip_bilateral \
+  --r1_negation_exempt \
+  --r1_skip_midline
 ```
 
 ### 4.2 Windows PowerShell
@@ -116,7 +120,9 @@ python run_mini_experiment.py `
   --r4_disabled `
   --r5_fallback_disabled `
   --anatomy_spatial_routing `
-  --r2_skip_bilateral
+  --r2_skip_bilateral `
+  --r1_negation_exempt `
+  --r1_skip_midline
 ```
 
 ## 5. 结构验收

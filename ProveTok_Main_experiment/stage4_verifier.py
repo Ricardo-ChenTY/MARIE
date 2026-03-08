@@ -84,9 +84,14 @@ class Verifier:
         violations: List[RuleViolation] = []
         x_mid = self._global_midline_x(all_tokens)
         side_claim = parse_laterality(sentence.text)
+        negated = plan.is_negated or detect_negation(sentence.text)
 
         # R1 laterality consistency
-        if side_claim in ("left", "right"):
+        r1_skipped = (self.cfg.r1_negation_exempt and negated) or bool(
+            plan.anatomy_keyword
+            and plan.anatomy_keyword.lower() in self.cfg.r1_skip_midline_keywords
+        )
+        if side_claim in ("left", "right") and not r1_skipped:
             bad_ids: List[int] = []
             for tok in cited:
                 if token_side(tok, x_mid, self.cfg.lateral_tolerance) != side_claim:
@@ -184,7 +189,6 @@ class Verifier:
                     )
 
         # R5 negation handling
-        negated = plan.is_negated or detect_negation(sentence.text)
         if negated and cited:
             conflicted = [
                 tok for tok in cited if float(tok.metadata.get("negation_conflict", 0.0)) > 0.0

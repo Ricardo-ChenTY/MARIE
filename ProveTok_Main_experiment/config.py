@@ -44,6 +44,8 @@ class VerifierConfig:
     use_max_iou_for_r2: bool = False
     r4_disabled: bool = False
     r2_skip_keywords: set = field(default_factory=set)
+    r1_negation_exempt: bool = False
+    r1_skip_midline_keywords: set = field(default_factory=set)
     severity_by_rule: Dict[str, float] = field(
         default_factory=lambda: {
             "R1_LATERALITY": 1.0,
