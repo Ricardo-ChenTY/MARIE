@@ -23,9 +23,17 @@
 
 router 拿到 left/right lung bbox 后，`anatomy_spatial_routing` 模式下 IoU 主导打分，token 会优先从正确半肺里选取 → R1 same_side_ratio 大幅提升 → R1 明显减少触发。
 
+### 副作用修复（第七轮 v2）
+
+加入 left/right lung bbox 后，之前 `anatomy_keyword=None`（→R2 不检查）的句子现在有了 bbox → R2 开始检查 → R2 从 42 暴涨到 133。
+
+原因：half-volume 大 bbox（约 0.48 体积）与小 token bbox 的 IoU 天然很低（~0.02），低于 `tau_iou=0.05`。
+
+修复：`run_mini_experiment.py` 中无条件把 `"left lung"` 和 `"right lung"` 加入 `r2_skip_keywords`，这两个是路由兜底词，不应做 R2 精度校验。
+
 ### 验证策略
 
-50-case 回归，预期 R1 从 90 降到 < 30，R2 维持 ~42。
+50-case 回归，预期 R1 从 90 降到 < 30，R2 维持 ~42（不上升）。
 
 ---
 

@@ -243,6 +243,9 @@ def main() -> None:
         cfg.verifier.r5_fallback_lexicon = False
     if args.r2_skip_bilateral:
         cfg.verifier.r2_skip_keywords = {"bilateral"}
+    # "left lung" / "right lung" are fallback routing keywords (entire half-volume bbox).
+    # Their IoU with small token bboxes is structurally too low for R2 to be meaningful.
+    cfg.verifier.r2_skip_keywords.update({"left lung", "right lung"})
     if args.r1_negation_exempt:
         cfg.verifier.r1_negation_exempt = True
     if args.r1_skip_midline:
