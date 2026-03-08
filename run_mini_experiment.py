@@ -195,6 +195,7 @@ def main() -> None:
     parser.add_argument("--r1_negation_exempt", action="store_true", help="Skip R1_LATERALITY for negated sentences (e.g. 'no left pleural effusion'). Negated cites are not expected to be laterally aligned.")
     parser.add_argument("--r1_skip_midline", action="store_true", help="Skip R1_LATERALITY for midline anatomy keywords (mediastinum, trachea, aorta, esophagus, spine, etc.) that span the midline by definition.")
     parser.add_argument("--r1_min_same_side_ratio", type=float, default=None, help="R1 fires only when fraction of non-cross tokens on the claimed side < this threshold. Default 1.0 (strict all-or-nothing). 0.6 recommended for ratio mode.")
+    parser.add_argument("--lateral_tolerance", type=float, default=None, help="Half-width of the midline dead zone (normalized x). Tokens within x_mid ± tol are classified as 'cross' and excluded from R1 laterality check. 0.0 = strict midline (default). Try 0.05 to absorb near-midline tokens.")
     parser.add_argument(
         "--anatomy_spatial_routing",
         action="store_true",
@@ -260,7 +261,11 @@ def main() -> None:
         cfg.verifier.r1_min_same_side_ratio = ratio
     if args.anatomy_spatial_routing:
         cfg.router.anatomy_spatial_routing = True
-
+    if args.lateral_tolerance is not None:
+        tol = float(args.lateral_tolerance)
+        if not (0.0 <= tol <= 0.5):
+            raise ValueError(f"--lateral_tolerance must be in [0, 0.5], got {tol}")
+        cfg.verifier.lateral_tolerance = tol
 
     text_encoder_mode = str(args.text_encoder).strip().lower()
     if args.cp_strict:
@@ -338,6 +343,7 @@ def main() -> None:
         "r1_negation_exempt": bool(args.r1_negation_exempt),
         "r1_skip_midline": bool(args.r1_skip_midline),
         "r1_min_same_side_ratio": float(cfg.verifier.r1_min_same_side_ratio),
+        "lateral_tolerance": float(cfg.verifier.lateral_tolerance),
         "anatomy_spatial_routing": bool(cfg.router.anatomy_spatial_routing),
     }
     with (out_dir / "run_meta.json").open("w", encoding="utf-8") as f:

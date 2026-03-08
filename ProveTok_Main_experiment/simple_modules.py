@@ -8,12 +8,12 @@ from .types import BBox3D, EvidenceToken, SentencePlan
 
 
 DEFAULT_ANATOMY_BOXES: Dict[str, BBox3D] = {
-    "right lung": BBox3D(0.00, 0.48, 0.00, 1.00, 0.00, 1.00),
-    "left lung": BBox3D(0.52, 1.00, 0.00, 1.00, 0.00, 1.00),
-    "right upper lobe": BBox3D(0.00, 0.45, 0.50, 1.00, 0.00, 1.00),
-    "right lower lobe": BBox3D(0.00, 0.45, 0.00, 0.50, 0.00, 1.00),
-    "left upper lobe": BBox3D(0.55, 1.00, 0.50, 1.00, 0.00, 1.00),
-    "left lower lobe": BBox3D(0.55, 1.00, 0.00, 0.50, 0.00, 1.00),
+    "right lung": BBox3D(0.00, 0.50, 0.00, 1.00, 0.00, 1.00),
+    "left lung": BBox3D(0.50, 1.00, 0.00, 1.00, 0.00, 1.00),
+    "right upper lobe": BBox3D(0.00, 0.50, 0.50, 1.00, 0.00, 1.00),
+    "right lower lobe": BBox3D(0.00, 0.50, 0.00, 0.50, 0.00, 1.00),
+    "left upper lobe": BBox3D(0.50, 1.00, 0.50, 1.00, 0.00, 1.00),
+    "left lower lobe": BBox3D(0.50, 1.00, 0.00, 0.50, 0.00, 1.00),
     "mediastinum": BBox3D(0.40, 0.60, 0.20, 0.80, 0.00, 1.00),
     "bilateral": BBox3D(0.00, 1.00, 0.00, 1.00, 0.00, 1.00),
 }
