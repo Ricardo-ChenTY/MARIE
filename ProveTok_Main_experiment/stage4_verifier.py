@@ -92,18 +92,24 @@ class Verifier:
             and plan.anatomy_keyword.lower() in self.cfg.r1_skip_midline_keywords
         )
         if side_claim in ("left", "right") and not r1_skipped:
-            bad_ids: List[int] = []
+            same_ids: List[int] = []
+            opp_ids: List[int] = []
             for tok in cited:
-                if token_side(tok, x_mid, self.cfg.lateral_tolerance) != side_claim:
-                    bad_ids.append(tok.token_id)
-            if bad_ids:
+                side = token_side(tok, x_mid, self.cfg.lateral_tolerance)
+                if side == side_claim:
+                    same_ids.append(tok.token_id)
+                elif side != "cross":
+                    opp_ids.append(tok.token_id)
+            non_cross = len(same_ids) + len(opp_ids)
+            same_ratio = len(same_ids) / non_cross if non_cross > 0 else 1.0
+            if same_ratio < self.cfg.r1_min_same_side_ratio:
                 violations.append(
                     RuleViolation(
                         sentence_index=sentence.sentence_index,
                         rule_id="R1_LATERALITY",
                         severity=self.cfg.severity_by_rule["R1_LATERALITY"],
-                        message=f"Laterality mismatch with claim={side_claim}.",
-                        token_ids=bad_ids,
+                        message=f"Laterality mismatch with claim={side_claim} (same_side_ratio={same_ratio:.3f}).",
+                        token_ids=opp_ids,
                     )
                 )
 

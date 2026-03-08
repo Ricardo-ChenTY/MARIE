@@ -46,6 +46,7 @@ class VerifierConfig:
     r2_skip_keywords: set = field(default_factory=set)
     r1_negation_exempt: bool = False
     r1_skip_midline_keywords: set = field(default_factory=set)
+    r1_min_same_side_ratio: float = 1.0
     severity_by_rule: Dict[str, float] = field(
         default_factory=lambda: {
             "R1_LATERALITY": 1.0,

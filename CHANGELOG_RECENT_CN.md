@@ -2,6 +2,48 @@
 
 更新日期：2026-03-07
 
+## 第六轮改进：R1 ratio 模式（same_side_ratio 阈值）
+
+### 背景
+
+50-case 回归（全部 4 flag）显示：R1: 100 → 90（仅降 10），negation_exempt + skip_midline 的收益有限。剩余 90 个 R1 是 router 路由到错误侧的真实 case，根因是原始 R1 逻辑**全匹配（all-or-nothing）**：只要有一个 cited token 在错误侧就触发，但有时只有少数 token 跑偏，整体 routing 是正确的。
+
+### 改动
+
+**`ProveTok_Main_experiment/config.py`**
+
+- 新增 `r1_min_same_side_ratio: float = 1.0`（默认 1.0 = 原有严格行为）
+
+**`ProveTok_Main_experiment/stage4_verifier.py`**
+
+- R1 block 改为 ratio 模式：
+  - 将 cited tokens 按 `token_side()` 分类为 `same / opp / cross`
+  - cross tokens 排除在比例计算之外
+  - `same_side_ratio = len(same) / (len(same) + len(opp))`
+  - 仅当 `same_side_ratio < r1_min_same_side_ratio` 时触发 R1
+  - violation message 带 ratio 数值
+
+**`run_mini_experiment.py`**
+
+- 新增 `--r1_min_same_side_ratio` flag（float，默认 None → 不改配置，等于 1.0 严格）
+- config wiring + run_meta 记录
+
+### 验证策略
+
+50-case 先跑两组对比：
+
+```bash
+# 当前基线（ratio=1.0 严格）
+python run_mini_experiment.py ... --anatomy_spatial_routing --r2_skip_bilateral --r1_negation_exempt --r1_skip_midline
+
+# ratio 模式（推荐阈值 0.6）
+python run_mini_experiment.py ... --anatomy_spatial_routing --r2_skip_bilateral --r1_negation_exempt --r1_skip_midline --r1_min_same_side_ratio 0.6
+```
+
+预期：R1 从 90 明显下降（目标 < 40），R2 保持稳定（~42）。
+
+---
+
 ## 第五轮改进：R1 优化（否定句豁免 + 中线解剖词豁免）
 
 ### 背景

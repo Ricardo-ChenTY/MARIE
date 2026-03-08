@@ -14,17 +14,16 @@
 - `--r2_skip_bilateral`
 - `--r1_negation_exempt`
 - `--r1_skip_midline`
+- `--r1_min_same_side_ratio 0.6`
 - `--r4_disabled`
 - `--r5_fallback_disabled`
 
-对应的 `50/50` smoke 已通过（含 R1 修复前）：
+对应的 `50/50` smoke 进展：
 
-- `Validated: 100, Passed: 100, Failed: 0`
-- 总违规句率：`42.00% -> 17.375%`（skip bilateral 后）
-- `R2_ANATOMY: 239 -> 42`
-- `R1_LATERALITY: 100 -> 100`
+- 第五轮（negation_exempt + skip_midline）：R1: 100 → 90，违规率 17.375% → 16.50%
+- 第六轮（ratio 0.6）：待验证，预期 R1 < 40
 
-新增 R1 修复（`r1_negation_exempt` + `r1_skip_midline`）待 50-case 回归验证后锁定。
+`--r1_min_same_side_ratio 0.6` 待 50-case 回归验证后锁定进主实验命令。
 
 ## 2. 必需输入
 
@@ -87,7 +86,8 @@ python run_mini_experiment.py \
   --anatomy_spatial_routing \
   --r2_skip_bilateral \
   --r1_negation_exempt \
-  --r1_skip_midline
+  --r1_skip_midline \
+  --r1_min_same_side_ratio 0.6
 ```
 
 ### 4.2 Windows PowerShell
@@ -122,7 +122,8 @@ python run_mini_experiment.py `
   --anatomy_spatial_routing `
   --r2_skip_bilateral `
   --r1_negation_exempt `
-  --r1_skip_midline
+  --r1_skip_midline `
+  --r1_min_same_side_ratio 0.6
 ```
 
 ## 5. 结构验收

@@ -194,6 +194,7 @@ def main() -> None:
     parser.add_argument("--r2_skip_bilateral", action="store_true", help="Skip R2_ANATOMY for 'bilateral' sentences (bbox=entire volume, structurally cannot pass IoU check).")
     parser.add_argument("--r1_negation_exempt", action="store_true", help="Skip R1_LATERALITY for negated sentences (e.g. 'no left pleural effusion'). Negated cites are not expected to be laterally aligned.")
     parser.add_argument("--r1_skip_midline", action="store_true", help="Skip R1_LATERALITY for midline anatomy keywords (mediastinum, trachea, aorta, esophagus, spine, etc.) that span the midline by definition.")
+    parser.add_argument("--r1_min_same_side_ratio", type=float, default=None, help="R1 fires only when fraction of non-cross tokens on the claimed side < this threshold. Default 1.0 (strict all-or-nothing). 0.6 recommended for ratio mode.")
     parser.add_argument(
         "--anatomy_spatial_routing",
         action="store_true",
@@ -249,6 +250,11 @@ def main() -> None:
             "mediastinum", "trachea", "carina", "esophagus",
             "aorta", "spine", "vertebra", "sternum",
         }
+    if args.r1_min_same_side_ratio is not None:
+        ratio = float(args.r1_min_same_side_ratio)
+        if not (0.0 <= ratio <= 1.0):
+            raise ValueError(f"--r1_min_same_side_ratio must be in [0, 1], got {ratio}")
+        cfg.verifier.r1_min_same_side_ratio = ratio
     if args.anatomy_spatial_routing:
         cfg.router.anatomy_spatial_routing = True
 
@@ -328,6 +334,7 @@ def main() -> None:
         "r2_skip_bilateral": bool(args.r2_skip_bilateral),
         "r1_negation_exempt": bool(args.r1_negation_exempt),
         "r1_skip_midline": bool(args.r1_skip_midline),
+        "r1_min_same_side_ratio": float(cfg.verifier.r1_min_same_side_ratio),
         "anatomy_spatial_routing": bool(cfg.router.anatomy_spatial_routing),
     }
     with (out_dir / "run_meta.json").open("w", encoding="utf-8") as f:
