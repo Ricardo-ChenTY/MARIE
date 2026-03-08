@@ -2,6 +2,33 @@
 
 更新日期：2026-03-07
 
+## 第七轮改进：anatomy resolver 补 left lung / right lung bbox
+
+### 背景
+
+50-case 回归（含 ratio 0.6）显示 R1 仍为 90，ratio 模式完全无效。根因：90 个违规句子的 `same_side_ratio ≈ 0`，即 8 个 cited token 全部在错误侧。
+
+原因是 `"left lung opacity"` / `"right pleural effusion"` 等句子在 `_extract_keyword()` 中无法匹配到任何 anatomy keyword（只有 lobe 级别的词），导致 `anatomy_keyword=None` → `anatomy_bbox=None` → router 退回纯语义打分（w_proj 未训练，不可靠）→ 全部 token 路由到错误侧。
+
+### 改动
+
+**`ProveTok_Main_experiment/simple_modules.py`**
+
+- `DEFAULT_ANATOMY_BOXES` 新增：
+  - `"left lung": BBox3D(0.52, 1.00, 0.00, 1.00, 0.00, 1.00)`
+  - `"right lung": BBox3D(0.00, 0.48, 0.00, 1.00, 0.00, 1.00)`
+- `_extract_keyword()` 新增 fallback：有 `"left"` 但无细化解剖词 → `"left lung"`；有 `"right"` → `"right lung"`
+
+### 预期效果
+
+router 拿到 left/right lung bbox 后，`anatomy_spatial_routing` 模式下 IoU 主导打分，token 会优先从正确半肺里选取 → R1 same_side_ratio 大幅提升 → R1 明显减少触发。
+
+### 验证策略
+
+50-case 回归，预期 R1 从 90 降到 < 30，R2 维持 ~42。
+
+---
+
 ## 第六轮改进：R1 ratio 模式（same_side_ratio 阈值）
 
 ### 背景
