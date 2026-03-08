@@ -1,6 +1,35 @@
 # Recent Changes (CN)
 
-更新日期：2026-03-07
+更新日期：2026-03-08
+
+## 第八轮：bbox 边界对齐 + 直接上 450/450
+
+### 改动
+
+**`ProveTok_Main_experiment/simple_modules.py`**
+
+- `DEFAULT_ANATOMY_BOXES` 边界对齐到 x=0.50（Plan A）：
+  - `right lung` x_max: `0.48 → 0.50`
+  - `left lung` x_min: `0.52 → 0.50`
+  - 所有 lobe x 边界从 `0.45/0.55` → `0.50`
+- 消除 x∈[0.48,0.52] 死区，midline 附近 token 不再 IoU=0
+
+**`run_mini_experiment.py`**
+
+- 新增 `--lateral_tolerance` flag（暴露已有 `cfg.verifier.lateral_tolerance`，默认 0.0）
+- `run_meta.json` 记录 `lateral_tolerance`
+
+### 结果
+
+50-case 128^3 回归（Plan A）：R1=82，R2=42（与 r7v2 128 基线持平，Plan A 无收益）。
+
+根因：R1 违规 token 分布在对面整个半肺，不在 midline 附近。死区修复未触及主要失败模式。
+
+### 决策
+
+不再继续压 R1，直接上 450/450 主实验。当前 50-case 128^3 改善幅度（R2: 269→42，R1: 119→82）相比上次 450/450 基线（R2=420，R1=1770）预计有明显收益。
+
+---
 
 ## 第七轮改进：anatomy resolver 补 left lung / right lung bbox
 

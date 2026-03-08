@@ -18,12 +18,14 @@
 - `--r4_disabled`
 - `--r5_fallback_disabled`
 
-对应的 `50/50` smoke 进展：
+50-case 回归历程（128^3 基准）：
 
 - 第五轮（negation_exempt + skip_midline）：R1: 100 → 90，违规率 17.375% → 16.50%
-- 第六轮（ratio 0.6）：待验证，预期 R1 < 40
+- 第六轮（ratio 0.6）：R1: 90，ratio 模式对全错侧 token 无效
+- 第七轮（left/right lung bbox fallback）：R1: 90 → 82，R2: 42 → 42（128^3）
+- 第八轮（bbox 边界对齐 0.50）：R1: 82，Plan A 无收益（死区不是主因）
 
-`--r1_min_same_side_ratio 0.6` 待 50-case 回归验证后锁定进主实验命令。
+配置已锁定，直接上 450/450。
 
 ## 2. 必需输入
 
