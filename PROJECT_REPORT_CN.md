@@ -43,7 +43,7 @@ graph TD
         AR["Anatomy Resolver (当前)<br/>[已完成] 词表映射 & Left/Right Lung 兜底"]:::done
         
         LLM_P["Stage 3a: LLM 高级规划器 [还没做]<br/>(解析上下文, 输出 JSON 结构化病灶/解剖/否定)"]:::future
-        FixR1["动态解剖词表扩展 [待做 P1]<br/>(如新增 pleural space 等精细 BBox)"]:::todo
+        FixR1["动态解剖词表扩展 [待做 P2]<br/>(如新增 pleural space 等精细 BBox)"]:::todo
 
         RT["Router: Anatomy-Primary [已完成]<br/>Score = IoU + ε * Semantic (语义仅作 tiebreaker)"]:::done
 
@@ -64,8 +64,8 @@ graph TD
         pad3["&nbsp;"]:::spacer
         VF("Verifier<br/>5条规则并行审计"):::highlight
         
-        R1["R1: LATERALITY (侧别)<br/>[已完成] Ratio ≥ 0.6 触发<br/>(已豁免否定句与中线结构)"]:::done
-        R2["R2: ANATOMY (解剖)<br/>[已完成] Ratio ≥ 0.8 触发<br/>(已豁免 bilateral/lung 大框)"]:::done
+        R1["R1: LATERALITY (侧别)<br/>[已完成] same_ratio &lt; 0.6 时触发违规<br/>(已豁免否定句与中线结构)"]:::done
+        R2["R2: ANATOMY (解剖)<br/>[已完成] good_ratio &lt; 0.8 时触发违规<br/>(已豁免 bilateral/lung 大框)"]:::done
         R3["R3: DEPTH (深度)<br/>[已完成] 粗/细粒度校验"]:::done
         R4["R4: SIZE (大小)<br/>[已禁用] 阈值未校准"]:::disabled
         R5["R5: NEGATION (否定)<br/>[已禁用] Fallback词表关闭"]:::disabled
@@ -83,15 +83,17 @@ graph TD
         VF -.->|"弥补纯空间无语义的短板"| LLM_J
     end
 
-    subgraph Stage5 ["5. 终极愿景: Token 门控生成与自纠错 [还没做]"]
-        pad4["&nbsp;"]:::spacer
-        TG["Stage 3c: Token-Gated Generation<br/>(多模态 LLM 强制基于物理 Tokens 生成描述)"]:::future
-        SR["Stage 5: 严重度驱动重路由 (Reroute)<br/>(r' = r - γ * ln(1 + sev) 更新分数并重新采样)"]:::future
-        
-        pad4 ~~~ TG & SR
+    subgraph Stage5 ["5. 待做: 语义增强与终极愿景"]
+        subgraph PlanB ["Plan B (下一步 P1): LLM 语义裁判 + 重路由"]
+            SR["Stage 5a: 严重度驱动重路由 (Reroute)<br/>(r' = r - γ * ln(1 + sev) 更新分数并重新采样)"]:::future
+        end
+        subgraph PlanC ["Plan C (终极目标 P3): Token 门控生成"]
+            TG["Token-Gated Generation<br/>(多模态 LLM 强制基于物理 Tokens 生成描述)"]:::future
+        end
     end
 
     R1 & R2 & R3 -.->|"若判定违规且严重度 sev > 0"| SR
+    LLM_J -.->|"语义裁判结果驱动重路由"| SR
     SR -.->|"反馈惩罚, 触发一次性 Retry"| RT
     TKT -.->|"作为 Grounded 视觉前缀"| TG
 ```
