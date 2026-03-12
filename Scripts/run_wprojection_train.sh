@@ -3,7 +3,7 @@
 # Step 3: 训练 W_proj（InfoNCE，Stage 3c 前置）
 #
 # 前置条件:
-#   先跑过 Stage 0-4，有 outputs_stage0_4_450/cases/ 目录
+#   先跑过 Stage 0-4，有 outputs/stage0_4_450/cases/ 目录
 #
 # 用法:
 #   bash Scripts/run_wprojection_train.sh
@@ -14,9 +14,9 @@ set -euo pipefail
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ─── 默认参数（可通过命令行覆盖）────────────────────────
-CASES_DIR="${PROJ_ROOT}/outputs_stage0_4_450/cases"
-OUT_DIR="${PROJ_ROOT}/outputs_wprojection"
-EPOCHS=50
+CASES_DIR="${PROJ_ROOT}/outputs/stage0_4_450/cases"
+OUT_DIR="${PROJ_ROOT}/outputs/wprojection"
+EPOCHS=20
 BATCH_SIZE=32
 LR=1e-3
 TAU=0.07

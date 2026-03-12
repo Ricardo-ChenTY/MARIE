@@ -16,10 +16,10 @@ set -euo pipefail
 CTRATE_CSV="/path/to/ctrate_manifest.csv"
 RADGENOME_CSV="/path/to/radgenome_manifest.csv"
 ENCODER_CKPT="/path/to/swinunetr.ckpt"
-OUT_DIR="$(dirname "$0")/../outputs_stage0_5_llama_450"
 # ─────────────────────────────────────────────────────────
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT_DIR="${PROJ_ROOT}/outputs/stage0_5_llama_450"
 MODEL_DIR="${PROJ_ROOT}/models/Llama-3.1-8B-Instruct"
 
 mkdir -p "${OUT_DIR}"

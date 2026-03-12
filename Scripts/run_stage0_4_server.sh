@@ -13,10 +13,10 @@ set -euo pipefail
 CTRATE_CSV="/path/to/ctrate_manifest.csv"
 RADGENOME_CSV="/path/to/radgenome_manifest.csv"
 ENCODER_CKPT="/path/to/swinunetr.ckpt"
-OUT_DIR="$(dirname "$0")/../outputs_stage0_4_450"
 # ─────────────────────────────────────────────────────────
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT_DIR="${PROJ_ROOT}/outputs/stage0_4_450"
 mkdir -p "${OUT_DIR}"
 
 echo "=========================================="
@@ -73,4 +73,4 @@ echo "   summary.csv 和 validation_report.json 已生成"
 echo ""
 echo "下一步:"
 echo "  Stage 0-5 (加 LLM 裁判): bash Scripts/run_stage0_5_llama_server.sh"
-echo "  训练 W_proj:              bash Scripts/run_wprojection_train.sh --cases_dir ${OUT_DIR}/cases"
+echo "  训练 W_proj:              bash Scripts/run_wprojection_train.sh"

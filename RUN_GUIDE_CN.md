@@ -146,33 +146,52 @@ python validate_stage0_4_outputs.py \
 - `run_meta.json` 中 `ctrate.selected_rows = 450`
 - `run_meta.json` 中 `radgenome.selected_rows = 450`
 
-## 6. Colab 验收 Notebook
+## 6. 服务器验收脚本
 
-使用：
+使用 `analyze_outputs.py`（无需 Colab，直接在 server 终端运行）：
 
-- [OUTPUT_ANALYSIS_COLAB.ipynb](c:\Users\34228\Desktop\ACM\Smoke_analysis\OUTPUT_ANALYSIS_COLAB.ipynb)
+```bash
+# 验收单次 450/450 主实验
+python analyze_outputs.py \
+  --out_dir outputs/stage0_4_450
 
-你朋友在 Colab 里只需要：
+# 验收带 Stage5 LLM 裁判的结果
+python analyze_outputs.py \
+  --out_dir outputs/stage0_5_llama_450
 
-1. 挂载 Google Drive
-2. 打开 notebook
-3. 把 `OUT_DIR` 改成 `450/450` 输出目录
-4. 运行全部 cells
+# 随机抽查 2 个病例的 trace
+python analyze_outputs.py \
+  --out_dir outputs/stage0_4_450 \
+  --inspect_n 2
 
-notebook 现在默认按 `450/450` 口径验收，会检查：
+# 查特定病例
+python analyze_outputs.py \
+  --out_dir outputs/stage0_4_450 \
+  --inspect_case ctrate/train_10004_a_2
 
-- `expected_cases_map = ctrate=450,radgenome=450`
+# Sweep 参数对比
+python analyze_outputs.py \
+  --mode sweep \
+  --sweep_root outputs/sweeps
+```
+
+脚本按 `450/450` 口径验收，会检查：
+
 - `validation_report.json` 是否全过
-- `run_meta.json` 的关键开关是否符合主实验配置
-- `summary.csv`、`cases/*/*/trace.jsonl` 是否能正常汇总
+- `run_meta.json` 中所有锁定配置开关（cp_strict / r2_mode / tau_iou 等）
+- `ctrate.selected_rows == 450` / `radgenome.selected_rows == 450`
+- `summary.csv`、`cases/*/*/trace.jsonl` 汇总
 
-notebook 会导出：
+输出文件（`{out_dir}/analysis_exports/`）：
 
-- `analysis_exports/dataset_aggregate.csv`
-- `analysis_exports/sentence_violation_rate.csv`
-- `analysis_exports/rule_violation_count.csv`
-- `analysis_exports/abnormal_cases_ranked.csv`
-- `analysis_exports/sentence_detail.csv`
+- `dataset_aggregate.csv`
+- `sentence_violation_rate.csv`
+- `rule_violation_count.csv`
+- `abnormal_cases_ranked.csv`
+- `sentence_detail.csv`
+- `anatomy_r2_breakdown.csv`
+- `anatomy_all_violation_rate.csv`
+- `*.png` 图表（matplotlib Agg，无需 display）
 
 ## 7. 结果怎么看
 
@@ -237,17 +256,16 @@ huggingface-cli download meta-llama/Llama-3.1-8B-Instruct \
 
 # === 2. 跑 Stage 0-4 baseline（纯规则，450/450）===
 bash Scripts/run_stage0_4_server.sh
-# 输出: outputs_stage0_4_450/summary.csv  validation_report.json
+# 输出: outputs/stage0_4_450/summary.csv  validation_report.json
 
 # === 3. 跑 Stage 0-5（带 LLM 裁判，450/450）===
 bash Scripts/run_stage0_5_llama_server.sh
-# 输出: outputs_stage0_5_llama_450/summary.csv
+# 输出: outputs/stage0_5_llama_450/summary.csv
 # 对比 Step 2 的 n_violations，LLM 过滤误报后应明显降低
 
 # === 4. 训练 W_proj（用 Step 2 的 token bank）===
-bash Scripts/run_wprojection_train.sh \
-  --cases_dir outputs_stage0_4_450/cases
-# 输出: outputs_wprojection/w_proj.pt  train_log.json
+bash Scripts/run_wprojection_train.sh
+# 输出: outputs/wprojection/w_proj.pt  train_log.json
 
 # === 5. Stage 3c（后续，需 W_proj 完成后再做）===
 # 代码在 ProveTok_Main_experiment/stage3c_generator.py，待集成

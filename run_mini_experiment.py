@@ -20,6 +20,7 @@ from ProveTok_Main_experiment.stage2_octree_splitter import AdaptiveOctreeSplitt
 from ProveTok_Main_experiment.stage3_router import Router
 from ProveTok_Main_experiment.stage4_verifier import Verifier
 from ProveTok_Main_experiment.stage0_4_runner import run_case_stage0_4, Stage04Components
+from ProveTok_Main_experiment.stage5_llm_judge import LLMJudge
 from ProveTok_Main_experiment.text_encoder import make_text_encoder
 
 
@@ -37,6 +38,7 @@ def _run_manifest(
     resize_dhw: Tuple[int, int, int],
     text_encoder: Callable[[str], List[float]],
     expected_cases: int = 0,
+    llm_judge: Optional[LLMJudge] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, object]]:
     df_all = pd.read_csv(manifest_csv)
     n_available = int(len(df_all))
@@ -78,6 +80,7 @@ def _run_manifest(
         anatomy_resolver=RuleBasedAnatomyResolver(),
         router=Router(cfg=cfg.router, text_encoder=text_encoder, w_proj=None),
         verifier=Verifier(cfg.verifier, RuleBasedAnatomyResolver()),
+        llm_judge=llm_judge,
     )
     comp.verifier = Verifier(cfg.verifier, comp.anatomy_resolver)
 
@@ -111,6 +114,7 @@ def _run_manifest(
                 "n_tokens": result["n_tokens"],
                 "n_sentences": result["n_sentences"],
                 "n_violations": result["n_violations"],
+                "n_judge_confirmed": result.get("n_judge_confirmed", 0),
                 "trace_jsonl": result["trace_jsonl"],
             }
         )
@@ -204,6 +208,61 @@ def main() -> None:
             "Recommended when w_proj is untrained (identity). Semantic score used as tiebreaker only."
         ),
     )
+    # Stage 5: LLM judge
+    parser.add_argument(
+        "--llm_judge",
+        type=str,
+        default=None,
+        choices=("ollama", "openai", "anthropic", "huggingface"),
+        help="Enable Stage-5 LLM judge. Confirms/dismisses Stage-4 violations and applies score penalty.",
+    )
+    parser.add_argument(
+        "--llm_judge_model",
+        type=str,
+        default=None,
+        help=(
+            "LLM model name for Stage-5 judge. "
+            "Defaults: ollama='qwen2.5:7b', openai='gpt-4o-mini', "
+            "anthropic='claude-haiku-4-5-20251001', huggingface='meta-llama/Llama-3.1-8B-Instruct'."
+        ),
+    )
+    parser.add_argument(
+        "--llm_judge_alpha",
+        type=float,
+        default=0.5,
+        help="CP .tex penalty scale for Stage-5: S'=S*(1-alpha*sev). Default 0.5.",
+    )
+    parser.add_argument(
+        "--llm_judge_ollama_host",
+        type=str,
+        default="http://localhost:11434",
+        help="Ollama API host for Stage-5 judge.",
+    )
+    parser.add_argument(
+        "--llm_judge_fail_open",
+        action="store_true",
+        default=True,
+        help="On LLM call failure, keep original violation (conservative). Default True.",
+    )
+    parser.add_argument(
+        "--llm_judge_hf_device_map",
+        type=str,
+        default="auto",
+        help="HuggingFace device_map for Stage-5 judge (auto/cpu/cuda). Default: auto.",
+    )
+    parser.add_argument(
+        "--llm_judge_hf_torch_dtype",
+        type=str,
+        default="bfloat16",
+        choices=("bfloat16", "float16", "float32"),
+        help="HuggingFace torch dtype for Stage-5 judge. Default: bfloat16.",
+    )
+    parser.add_argument(
+        "--llm_judge_hf_token",
+        type=str,
+        default=None,
+        help="HuggingFace access token for gated models (e.g. Llama-3). Falls back to HF_TOKEN env var.",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -286,6 +345,42 @@ def main() -> None:
         st_device=args.text_encoder_device,
     )
 
+    # Stage 5 LLM judge setup
+    llm_judge: Optional[LLMJudge] = None
+    if args.llm_judge:
+        import os
+        from ProveTok_Main_experiment.config import LLMJudgeConfig
+
+        # Local model root: <project_root>/models/
+        _PROJECT_ROOT = Path(__file__).parent
+        _LOCAL_LLAMA = _PROJECT_ROOT / "models" / "Llama-3.1-8B-Instruct"
+
+        _default_models = {
+            "ollama": "qwen2.5:7b",
+            "openai": "gpt-4o-mini",
+            "anthropic": "claude-haiku-4-5-20251001",
+            "huggingface": str(_LOCAL_LLAMA),  # local path, no HF download needed
+        }
+        _model = args.llm_judge_model or _default_models[args.llm_judge]
+
+        # For huggingface backend: if a relative path is given, resolve from project root
+        if args.llm_judge == "huggingface" and not os.path.isabs(_model) and not _model.startswith("meta-llama/"):
+            _model = str(_PROJECT_ROOT / _model)
+
+        _hf_token = args.llm_judge_hf_token or os.environ.get("HF_TOKEN")
+        _judge_cfg = LLMJudgeConfig(
+            backend=args.llm_judge,
+            model=_model,
+            alpha=float(args.llm_judge_alpha),
+            ollama_host=args.llm_judge_ollama_host,
+            fail_open=bool(args.llm_judge_fail_open),
+            hf_device_map=args.llm_judge_hf_device_map,
+            hf_torch_dtype=args.llm_judge_hf_torch_dtype,
+            hf_token=_hf_token,
+        )
+        llm_judge = LLMJudge(_judge_cfg)
+        print(f"[Stage 5] LLM judge enabled: backend={args.llm_judge}, model={_model}, alpha={args.llm_judge_alpha}")
+
     ct_df, ct_meta = _run_manifest(
         dataset_name="ctrate",
         manifest_csv=ctrate_csv,
@@ -300,6 +395,7 @@ def main() -> None:
         resize_dhw=resize_dhw,
         text_encoder=text_encoder,
         expected_cases=int(args.expected_cases_per_dataset),
+        llm_judge=llm_judge,
     )
     rg_df, rg_meta = _run_manifest(
         dataset_name="radgenome",
@@ -315,6 +411,7 @@ def main() -> None:
         resize_dhw=resize_dhw,
         text_encoder=text_encoder,
         expected_cases=int(args.expected_cases_per_dataset),
+        llm_judge=llm_judge,
     )
     summary = pd.concat([ct_df, rg_df], axis=0, ignore_index=True)
     summary.to_csv(out_dir / "summary.csv", index=False)
@@ -345,6 +442,9 @@ def main() -> None:
         "r1_min_same_side_ratio": float(cfg.verifier.r1_min_same_side_ratio),
         "lateral_tolerance": float(cfg.verifier.lateral_tolerance),
         "anatomy_spatial_routing": bool(cfg.router.anatomy_spatial_routing),
+        "llm_judge_backend": str(args.llm_judge) if args.llm_judge else None,
+        "llm_judge_model": str(args.llm_judge_model) if args.llm_judge else None,
+        "llm_judge_alpha": float(args.llm_judge_alpha) if args.llm_judge else None,
     }
     with (out_dir / "run_meta.json").open("w", encoding="utf-8") as f:
         json.dump(run_meta, f, ensure_ascii=False, indent=2)

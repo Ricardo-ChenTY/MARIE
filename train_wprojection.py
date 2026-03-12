@@ -183,7 +183,7 @@ def main() -> None:
     parser.add_argument("--text_encoder_model", type=str,
                         default="sentence-transformers/all-MiniLM-L6-v2")
     parser.add_argument("--text_encoder_device", type=str, default="cpu")
-    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--tau", type=float, default=0.07, help="InfoNCE temperature.")
