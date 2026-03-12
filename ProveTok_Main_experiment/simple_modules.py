@@ -14,7 +14,9 @@ DEFAULT_ANATOMY_BOXES: Dict[str, BBox3D] = {
     "right lower lobe": BBox3D(0.00, 0.50, 0.00, 0.50, 0.00, 1.00),
     "left upper lobe": BBox3D(0.50, 1.00, 0.50, 1.00, 0.00, 1.00),
     "left lower lobe": BBox3D(0.50, 1.00, 0.00, 0.50, 0.00, 1.00),
-    "mediastinum": BBox3D(0.40, 0.60, 0.20, 0.80, 0.00, 1.00),
+    # Mediastinum is a broad midline structure; the previous box was too narrow
+    # and tended to yield zero-support R2 matches for valid mediastinal sentences.
+    "mediastinum": BBox3D(0.30, 0.70, 0.15, 0.85, 0.00, 1.00),
     "bilateral": BBox3D(0.00, 1.00, 0.00, 1.00, 0.00, 1.00),
 }
 

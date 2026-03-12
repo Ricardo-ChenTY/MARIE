@@ -29,10 +29,13 @@
 
 ## 2. 必需输入
 
-需要两个 manifest CSV：
+当前项目内固定使用以下路径：
 
-- `ctrate_manifest.csv`
-- `radgenome_manifest.csv`
+- `/data/ProveTok_ACM/manifests/ctrate_manifest.csv`
+- `/data/ProveTok_ACM/manifests/radgenome_manifest.csv`
+- `/data/ProveTok_ACM/checkpoints/swinunetr.ckpt`
+- `/data/ProveTok_ACM/dataset/CT-RATE/`
+- `/data/ProveTok_ACM/dataset/RadGenome-ChestCT/`
 
 每个 CSV 至少包含：
 
@@ -49,9 +52,14 @@
 ```bash
 nvidia-smi
 
-conda env create -f environment.yaml
-conda activate provetok
-pip install sentence-transformers
+source /data/ProveTok_ACM/miniconda3/etc/profile.d/conda.sh
+conda activate /data/ProveTok_ACM/miniconda3/envs/provetok
+```
+
+如需重新下载随机 `450/450` 数据与 manifest：
+
+```bash
+bash Scripts/run_random_450_download.sh
 ```
 
 ## 4. 450/450 主实验命令
@@ -59,15 +67,15 @@ pip install sentence-transformers
 ### 4.1 Linux / Colab Shell
 
 ```bash
-CTRATE_CSV="/path/to/ctrate_manifest.csv"
-RADGENOME_CSV="/path/to/radgenome_manifest.csv"
-ENCODER_CKPT="/path/to/swinunetr.ckpt"
-OUT_ROOT="/path/to/outputs"
+CTRATE_CSV="/data/ProveTok_ACM/manifests/ctrate_manifest.csv"
+RADGENOME_CSV="/data/ProveTok_ACM/manifests/radgenome_manifest.csv"
+ENCODER_CKPT="/data/ProveTok_ACM/checkpoints/swinunetr.ckpt"
+OUT_ROOT="/data/ProveTok_ACM"
 
 python run_mini_experiment.py \
   --ctrate_csv "${CTRATE_CSV}" \
   --radgenome_csv "${RADGENOME_CSV}" \
-  --out_dir "${OUT_ROOT}/outputs_stage0_4_450_128" \
+  --out_dir "${OUT_ROOT}/outputs/stage0_4_450" \
   --max_cases 450 \
   --expected_cases_per_dataset 450 \
   --cp_strict \
@@ -244,12 +252,15 @@ python analyze_outputs.py \
 ### 10.2 在服务器上的完整执行顺序
 
 ```bash
-# === 0. 先改脚本里的路径 ===
-vim Scripts/run_stage0_4_server.sh       # 填 CTRATE_CSV / RADGENOME_CSV / ENCODER_CKPT
-vim Scripts/run_stage0_5_llama_server.sh # 同上
+# === 0. 激活环境 ===
+cd /data/ProveTok_ACM
+source /data/ProveTok_ACM/miniconda3/etc/profile.d/conda.sh
+conda activate /data/ProveTok_ACM/miniconda3/envs/provetok
 
-# === 1. 下载 Llama 模型（一次性，约 16GB）===
-cd /path/to/ProveTok_ACM
+# run_stage0_4_server.sh / run_stage0_5_llama_server.sh
+# 已固定使用项目内路径，不需要再手改 CTRATE_CSV / RADGENOME_CSV / ENCODER_CKPT
+
+# === 1. 下载 Llama 模型（一次性）===
 huggingface-cli login
 huggingface-cli download meta-llama/Llama-3.1-8B-Instruct \
   --local-dir models/Llama-3.1-8B-Instruct

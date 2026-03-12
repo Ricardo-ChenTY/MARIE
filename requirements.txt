@@ -10,6 +10,7 @@ SimpleITK
 # Deep learning
 torch>=2.0
 monai>=1.3
+einops
 
 # Text encoding
 sentence-transformers

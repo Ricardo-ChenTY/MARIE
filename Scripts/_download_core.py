@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -50,7 +51,8 @@ class Job:
 # 3. Core Logic / 核心处理逻辑
 # ==========================================
 def normalize_case_id(volume_name: str) -> str:
-    return re.sub(r"_[a-z]_\d+\.nii\.gz$", "", volume_name)
+    # Use volume-level ID so each .nii.gz maps to a unique case_id.
+    return re.sub(r"\.nii\.gz$", "", volume_name)
 
 
 def read_csv_rows(path: Path) -> List[Dict[str, str]]:
@@ -174,7 +176,8 @@ def download_selected(
     miss_count = 0
     err_count = 0
 
-    for idx, row in enumerate(cleaned_rows, 1):
+    pending = []
+    for row in cleaned_rows:
         vol = row[job.volume_col]
         split = row.get("Split", "unknown")
         remote = remote_map.get(vol, "")
@@ -182,69 +185,81 @@ def download_selected(
         local_dir.mkdir(parents=True, exist_ok=True)
         local_file = local_dir / vol
 
-        status = "ok"
-        err = ""
+        entry = {
+            "dataset": job.name,
+            "volume_name": vol,
+            "split": split,
+            "remote_path": remote,
+            "local_path": str(local_file),
+            "status": "",
+            "error": "",
+        }
+        manifest.append(entry)
+
         if not remote:
-            status = "missing_remote"
+            entry["status"] = "missing_remote"
+            entry["local_path"] = ""
             miss_count += 1
-        else:
-            try:
-                if local_file.exists():
-                    status = "ok_existing"
-                    skip_count += 1
-                else:
-                    # Download directly into target dir — no cache copy needed
-                    # 直接下载到目标目录 — 无需缓存复制，避免双倍磁盘占用
-                    hf_hub_download(
-                        repo_id=job.repo_id,
-                        repo_type="dataset",
-                        filename=remote,
-                        token=token,
-                        local_dir=str(local_dir),
-                        local_dir_use_symlinks=False,
-                    )
-                    # hf_hub_download with local_dir preserves the remote subpath,
-                    # so the file lands at local_dir/<remote_path>.
-                    # We need to move it to local_dir/<vol>.
-                    downloaded_path = local_dir / remote
-                    if downloaded_path.exists() and downloaded_path != local_file:
-                        downloaded_path.rename(local_file)
-                        # Clean up empty parent dirs left behind
-                        # 清理残留的空目录
-                        try:
-                            for parent in downloaded_path.parents:
-                                if parent == local_dir:
-                                    break
-                                parent.rmdir()  # only removes if empty
-                        except OSError:
-                            pass
-                    ok_count += 1
-            except Exception as e:  # noqa: BLE001
-                status = "download_error"
-                err = str(e)
-                err_count += 1
-                logger.error(
-                    f"  [{idx}/{total}] Download failed / 下载失败: {vol} — {e}"
-                )
+            continue
+        if local_file.exists():
+            entry["status"] = "ok_existing"
+            skip_count += 1
+            continue
+        pending.append((entry, local_dir, local_file, remote))
 
-        manifest.append(
-            {
-                "dataset": job.name,
-                "volume_name": vol,
-                "split": split,
-                "remote_path": remote,
-                "local_path": str(local_file) if status in {"ok", "ok_existing"} else "",
-                "status": status,
-                "error": err,
-            }
+    def _download_one(local_dir: Path, local_file: Path, remote: str) -> None:
+        hf_hub_download(
+            repo_id=job.repo_id,
+            repo_type="dataset",
+            filename=remote,
+            token=token,
+            local_dir=str(local_dir),
+            local_dir_use_symlinks=False,
         )
+        downloaded_path = local_dir / remote
+        if downloaded_path.exists() and downloaded_path != local_file:
+            downloaded_path.rename(local_file)
+            try:
+                for parent in downloaded_path.parents:
+                    if parent == local_dir:
+                        break
+                    parent.rmdir()
+            except OSError:
+                pass
 
-        # Progress log at interval / 按间隔打印进度
-        if idx % log_interval == 0 or idx == total:
-            logger.info(
-                f"  [{idx}/{total}] Progress / 进度: "
-                f"new={ok_count} skipped={skip_count} missing={miss_count} errors={err_count}"
-            )
+    completed = len(manifest) - len(pending)
+    max_workers = min(8, max(1, len(pending)))
+    if pending and max_workers > 0:
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            future_map = {
+                ex.submit(_download_one, local_dir, local_file, remote): (entry, local_file)
+                for entry, local_dir, local_file, remote in pending
+            }
+            for future in as_completed(future_map):
+                entry, local_file = future_map[future]
+                try:
+                    future.result()
+                    entry["status"] = "ok"
+                    ok_count += 1
+                except Exception as e:  # noqa: BLE001
+                    entry["status"] = "download_error"
+                    entry["local_path"] = ""
+                    entry["error"] = str(e)
+                    err_count += 1
+                    logger.error(
+                        f"Download failed / 下载失败: {entry['volume_name']} — {e}"
+                    )
+                completed += 1
+                if completed % log_interval == 0 or completed == total:
+                    logger.info(
+                        f"  [{completed}/{total}] Progress / 进度: "
+                        f"new={ok_count} skipped={skip_count} missing={miss_count} errors={err_count}"
+                    )
+    elif completed and (completed % log_interval == 0 or completed == total):
+        logger.info(
+            f"  [{completed}/{total}] Progress / 进度: "
+            f"new={ok_count} skipped={skip_count} missing={miss_count} errors={err_count}"
+        )
 
     return manifest
 

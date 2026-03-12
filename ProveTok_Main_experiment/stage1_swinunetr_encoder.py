@@ -12,6 +12,35 @@ from monai.networks.nets import SwinUNETR
 ArrayLike = Union[np.ndarray, torch.Tensor]
 
 
+def _normalize_state_dict_keys(state: dict) -> dict:
+    """Map common wrapped checkpoint prefixes to raw SwinUNETR keys."""
+    prefixes = (
+        "module.module.swin_unetr.",
+        "module.swin_unetr.",
+        "swin_unetr.",
+        "module.module.",
+        "module.",
+    )
+    normalized = {}
+    for key, value in state.items():
+        new_key = key
+        for prefix in prefixes:
+            if new_key.startswith(prefix):
+                new_key = new_key[len(prefix):]
+                break
+        normalized[new_key] = value
+    return normalized
+
+
+def _filter_compatible_state_dict(model_state: dict, state: dict) -> dict:
+    compatible = {}
+    for key, value in state.items():
+        target = model_state.get(key)
+        if target is not None and tuple(target.shape) == tuple(value.shape):
+            compatible[key] = value
+    return compatible
+
+
 @dataclass
 class FrozenSwinUNETREncoder:
     """
@@ -38,7 +67,8 @@ class FrozenSwinUNETREncoder:
         )
         if self.checkpoint_path:
             ckpt = torch.load(self.checkpoint_path, map_location="cpu")
-            state = ckpt.get("state_dict", ckpt)
+            state = _normalize_state_dict_keys(ckpt.get("state_dict", ckpt))
+            state = _filter_compatible_state_dict(self.model.state_dict(), state)
             self.model.load_state_dict(state, strict=False)
         self.model.eval()
         for p in self.model.parameters():

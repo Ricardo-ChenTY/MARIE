@@ -349,7 +349,7 @@ def main() -> None:
     llm_judge: Optional[LLMJudge] = None
     if args.llm_judge:
         import os
-        from ProveTok_Main_experiment.config import LLMJudgeConfig
+        from ProveTok_Main_experiment.stage5_llm_judge import LLMJudgeConfig
 
         # Local model root: <project_root>/models/
         _PROJECT_ROOT = Path(__file__).parent

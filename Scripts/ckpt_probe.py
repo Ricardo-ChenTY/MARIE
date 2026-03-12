@@ -35,10 +35,41 @@ def _extract_state_dict(obj: object) -> Dict[str, torch.Tensor]:
             candidate = obj.get(key)
             if isinstance(candidate, dict) and candidate:
                 if all(isinstance(v, torch.Tensor) for v in candidate.values()):
-                    return candidate
+                    return _normalize_state_dict_keys(candidate)
         if obj and all(isinstance(v, torch.Tensor) for v in obj.values()):
-            return obj  # already a state_dict
+            return _normalize_state_dict_keys(obj)  # already a state_dict
     raise ValueError("Cannot parse checkpoint into a tensor state_dict.")
+
+
+def _normalize_state_dict_keys(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    prefixes = (
+        "module.module.swin_unetr.",
+        "module.swin_unetr.",
+        "swin_unetr.",
+        "module.module.",
+        "module.",
+    )
+    normalized: Dict[str, torch.Tensor] = {}
+    for key, value in state.items():
+        new_key = key
+        for prefix in prefixes:
+            if new_key.startswith(prefix):
+                new_key = new_key[len(prefix):]
+                break
+        normalized[new_key] = value
+    return normalized
+
+
+def _filter_compatible_state_dict(
+    model_state: Dict[str, torch.Tensor],
+    state: Dict[str, torch.Tensor],
+) -> Dict[str, torch.Tensor]:
+    compatible: Dict[str, torch.Tensor] = {}
+    for key, value in state.items():
+        target = model_state.get(key)
+        if target is not None and tuple(target.shape) == tuple(value.shape):
+            compatible[key] = value
+    return compatible
 
 
 def _build_model(in_channels: int, out_channels: int, feature_size: int) -> SwinUNETR:
@@ -109,9 +140,10 @@ def main() -> int:
 
     load_error = None
     load_success = False
+    filtered_state = _filter_compatible_state_dict(model_state, ckpt_state)
     try:
-        # Mimic current Stage-1 logic exactly (strict=False, no key remap).
-        model.load_state_dict(ckpt_state, strict=False)
+        # Mimic current Stage-1 logic exactly (prefix normalization + shape filtering + strict=False).
+        model.load_state_dict(filtered_state, strict=False)
         load_success = True
     except Exception as exc:  # pragma: no cover
         load_error = str(exc)
@@ -123,7 +155,7 @@ def main() -> int:
 
     compatible = bool(
         load_success
-        and mismatched_count == 0
+        and len(filtered_state) >= int(args.min_matched_keys)
         and matched_count >= int(args.min_matched_keys)
         and match_ratio >= float(args.min_match_ratio)
     )
@@ -132,12 +164,12 @@ def main() -> int:
     if not compatible:
         if not load_success:
             reason = "load_state_dict_runtime_error"
-        elif mismatched_count > 0:
-            reason = "shape_mismatch"
         elif matched_count == 0:
             reason = "no_effective_key_match"
         elif matched_count < int(args.min_matched_keys) or match_ratio < float(args.min_match_ratio):
             reason = "insufficient_weight_coverage"
+        elif mismatched_count > 0:
+            reason = "shape_mismatch"
 
     report = {
         "compatible": compatible,

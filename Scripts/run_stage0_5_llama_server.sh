@@ -12,17 +12,30 @@
 # ============================================================
 set -euo pipefail
 
-# ─── 改这里 ──────────────────────────────────────────────
-CTRATE_CSV="/path/to/ctrate_manifest.csv"
-RADGENOME_CSV="/path/to/radgenome_manifest.csv"
-ENCODER_CKPT="/path/to/swinunetr.ckpt"
+# ─── 固定输入路径 ────────────────────────────────────────
+CTRATE_CSV="/data/ProveTok_ACM/manifests/ctrate_manifest.csv"
+RADGENOME_CSV="/data/ProveTok_ACM/manifests/radgenome_manifest.csv"
+ENCODER_CKPT="/data/ProveTok_ACM/checkpoints/swinunetr.ckpt"
 # ─────────────────────────────────────────────────────────
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${PROJ_ROOT}/outputs/stage0_5_llama_450"
 MODEL_DIR="${PROJ_ROOT}/models/Llama-3.1-8B-Instruct"
+CACHE_ROOT="${PROJ_ROOT}/.cache"
+HF_HOME_DIR="${PROJ_ROOT}/.hf"
 
 mkdir -p "${OUT_DIR}"
+mkdir -p \
+  "${CACHE_ROOT}/huggingface/hub" \
+  "${CACHE_ROOT}/huggingface/transformers" \
+  "${CACHE_ROOT}/sentence_transformers" \
+  "${HF_HOME_DIR}"
+
+export XDG_CACHE_HOME="${CACHE_ROOT}"
+export HF_HOME="${HF_HOME_DIR}"
+export HUGGINGFACE_HUB_CACHE="${CACHE_ROOT}/huggingface/hub"
+export TRANSFORMERS_CACHE="${CACHE_ROOT}/huggingface/transformers"
+export SENTENCE_TRANSFORMERS_HOME="${CACHE_ROOT}/sentence_transformers"
 
 # 检查模型目录是否存在
 if [ ! -d "${MODEL_DIR}" ]; then

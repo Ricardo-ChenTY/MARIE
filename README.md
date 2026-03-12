@@ -13,13 +13,15 @@ pip install -r requirements.txt
 
 ### 2. 准备数据和模型权重
 
-需要在本地准备以下文件（不在仓库中）：
+当前项目内固定使用以下路径：
 
 | 文件 | 说明 |
 |------|------|
-| `ctrate_manifest.csv` | CT-RATE 数据集清单（含 case_id / volume_path / report_text 列） |
-| `radgenome_manifest.csv` | RadGenome 数据集清单（同上） |
-| `swinunetr.ckpt` | SwinUNETR CT 图像编码器权重 |
+| `manifests/ctrate_manifest.csv` | CT-RATE 数据集清单（含 case_id / volume_path / report_text 列） |
+| `manifests/radgenome_manifest.csv` | RadGenome 数据集清单（同上） |
+| `checkpoints/swinunetr.ckpt` | SwinUNETR CT 图像编码器权重 |
+| `dataset/CT-RATE/` | CT-RATE `.nii.gz` 数据目录 |
+| `dataset/RadGenome-ChestCT/` | RadGenome `.nii.gz` 数据目录 |
 
 可选（Stage 5 LLM 裁判，需先在 HuggingFace 申请 Llama-3 访问权限）：
 
@@ -29,11 +31,21 @@ huggingface-cli download meta-llama/Llama-3.1-8B-Instruct \
   --local-dir models/Llama-3.1-8B-Instruct
 ```
 
-### 3. 填写路径并运行
+如果需要重新生成随机 `450/450` 数据与 manifest：
 
 ```bash
-# 编辑路径（改 CTRATE_CSV / RADGENOME_CSV / ENCODER_CKPT 三行）
-vim Scripts/run_stage0_4_server.sh
+source /data/ProveTok_ACM/miniconda3/etc/profile.d/conda.sh
+conda activate /data/ProveTok_ACM/miniconda3/envs/provetok
+bash Scripts/run_random_450_download.sh
+```
+
+### 3. 直接运行
+
+运行脚本已经固定使用项目内路径，不需要再手改 `CTRATE_CSV / RADGENOME_CSV / ENCODER_CKPT`：
+
+```bash
+source /data/ProveTok_ACM/miniconda3/etc/profile.d/conda.sh
+conda activate /data/ProveTok_ACM/miniconda3/envs/provetok
 
 # Step 1: Stage 0-4 baseline（纯规则，450/450）
 bash Scripts/run_stage0_4_server.sh
@@ -42,7 +54,6 @@ bash Scripts/run_stage0_4_server.sh
 python analyze_outputs.py --out_dir outputs/stage0_4_450
 
 # Step 2（可选）: Stage 0-5，加 LLM 裁判
-vim Scripts/run_stage0_5_llama_server.sh  # 同样填路径
 bash Scripts/run_stage0_5_llama_server.sh
 
 # Step 3（可选）: 训练 W_proj

@@ -180,7 +180,7 @@ def check_run_meta(out_path: Path, expected_cases_map: str) -> dict:
 # Section 3 – summary.csv 分析
 # ══════════════════════════════════════════════════════════════════
 
-def analyze_summary(out_path: Path, export_dir: Path) -> pd.DataFrame:
+def analyze_summary(out_path: Path, export_dir: Path, expected_cases_map: str) -> pd.DataFrame:
     _banner("3. summary.csv 分析")
     summary_csv = out_path / "summary.csv"
     if not summary_csv.exists():
@@ -189,8 +189,9 @@ def analyze_summary(out_path: Path, export_dir: Path) -> pd.DataFrame:
 
     summary = pd.read_csv(summary_csv)
     print(f"总行数: {len(summary)}")
-    if len(summary) != 900:
-        print(f"  [WARN] expected 900 rows, got {len(summary)}")
+    expected_total = sum(_parse_expected_cases_map(expected_cases_map).values())
+    if len(summary) != expected_total:
+        print(f"  [WARN] expected {expected_total} rows, got {len(summary)}")
 
     agg_cols = {
         "case_id":     ("cases",            "count"),
@@ -675,7 +676,7 @@ def main() -> None:
 
         run_validation(out_path, args.expected_cases_map)
         run_meta = check_run_meta(out_path, args.expected_cases_map)
-        analyze_summary(out_path, export_dir)
+        analyze_summary(out_path, export_dir, args.expected_cases_map)
         sent_df, _ = parse_traces(out_path, export_dir)
         analyze_cases(sent_df, out_path, export_dir)
 
