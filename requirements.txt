@@ -1,0 +1,35 @@
+# ProveTok_ACM Dependencies
+# Install: pip install -r requirements.txt
+
+# Core
+numpy
+pandas
+scipy
+SimpleITK
+
+# Deep learning
+torch>=2.0
+monai>=1.3
+
+# Text encoding
+sentence-transformers
+
+# Analysis / visualization
+matplotlib
+seaborn
+
+# HuggingFace utilities
+huggingface_hub
+
+# ── Optional: Stage 5 LLM Judge backends ──────────────────────────────────
+# Uncomment the backend(s) you plan to use:
+
+# HuggingFace local model (e.g. Llama-3.1-8B-Instruct)
+transformers>=4.40
+accelerate
+
+# OpenAI API
+# openai>=1.0
+
+# Anthropic API
+# anthropic>=0.20
