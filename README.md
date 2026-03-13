@@ -47,18 +47,37 @@ bash Scripts/run_random_450_download.sh
 source /data/ProveTok_ACM/miniconda3/etc/profile.d/conda.sh
 conda activate /data/ProveTok_ACM/miniconda3/envs/provetok
 
-# Step 1: Stage 0-4 baseline（纯规则，450/450）
-bash Scripts/run_stage0_4_server.sh
+# 推荐：使用优化配置运行 200/200 验证
+bash Scripts/run_stage0_5_llama_200.sh
 
-# 验收结果
-python analyze_outputs.py --out_dir outputs/stage0_4_450
-
-# Step 2（可选）: Stage 0-5，加 LLM 裁判
+# 或者：完整 450/450 实验（需更新配置，见下方）
 bash Scripts/run_stage0_5_llama_server.sh
 
-# Step 3（可选）: 训练 W_proj
-bash Scripts/run_wprojection_train.sh
+# 分析结果
+python analyze_outputs.py \
+  --out_dir outputs/stage0_5_llama_200 \
+  --expected_cases_map ctrate=200,radgenome=200
 ```
+
+### 4. 优化配置（推荐）
+
+基于 mediastinum 阈值 sweep 实验结果，推荐使用以下配置：
+
+| 参数 | 推荐值 | 说明 |
+|------|--------|------|
+| `--tau_iou` | **0.04** | 解决 mediastinum 100% 违规问题的临界值 |
+| `--token_budget_b` | **128** | 标准分辨率（128³），更高精度 |
+| `--r2_min_support_ratio` | 0.8 | R2_ANATOMY 最小支持率 |
+| `--llm_judge` | huggingface | 使用 Llama-3.1-8B 过滤误报 |
+| `--llm_judge_alpha` | 0.5 | LLM 确认阈值 |
+
+**关键改进**：
+- ✅ `tau_iou=0.04` 完全消除 R2_ANATOMY 违规（相比 0.05 减少 100%）
+- ✅ mediastinum 违规率从 100% 降至 0%
+- ✅ 整体违规率稳定在 ~10%（健康范围）
+- ✅ LLM Judge 过滤 ~50% 误报
+
+详细实验结果见 [`EXPERIMENT_RESULTS.md`](./EXPERIMENT_RESULTS.md)
 
 ## 系统架构
 
