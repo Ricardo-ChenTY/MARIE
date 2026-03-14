@@ -23,10 +23,37 @@ Usage (standalone generation):
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
 from .types import EvidenceToken, SentencePlan
+
+
+# Spatial localization words to strip during de-specification fallback.
+_SPATIAL_WORDS = [
+    # laterality
+    r"\bright\b", r"\bleft\b", r"\bbilateral(ly)?\b",
+    # axial position
+    r"\bupper\b", r"\blower\b", r"\bmiddle\b",
+    r"\banterior\b", r"\bposterior\b",
+    r"\bsuperior\b", r"\binferior\b",
+    r"\bmedial\b", r"\blateral\b",
+    # lobe-specific
+    r"\bapical\b", r"\bbasal\b",
+    r"\bhilar\b", r"\bperihilar\b", r"\bsubpleural\b",
+    # common compound
+    r"\bright-sided\b", r"\bleft-sided\b",
+]
+_SPATIAL_RE = re.compile("|".join(_SPATIAL_WORDS), re.IGNORECASE)
+
+
+def despecify_text(text: str) -> str:
+    """Remove spatial localization words from text (de-specification fallback)."""
+    result = _SPATIAL_RE.sub("", text)
+    # Collapse multiple spaces
+    result = re.sub(r"  +", " ", result).strip()
+    return result
 
 
 @dataclass
@@ -91,14 +118,25 @@ def _build_generation_prompt(
     tokens: Sequence[EvidenceToken],
     include_bbox: bool,
     include_scores: bool,
+    history: Optional[List[str]] = None,
 ) -> str:
     ctx = _format_token_context(tokens, plan.anatomy_keyword, include_bbox, include_scores)
     negation_note = " (negated finding expected)" if plan.is_negated else ""
-    return (
-        f"Topic sentence to generate{negation_note}: \"{plan.topic}\"\n\n"
-        f"{ctx}\n\n"
-        "Write one concise radiology report sentence for this finding:"
+    parts: List[str] = []
+    if history:
+        parts.append("Previously generated sentences:")
+        for i, h in enumerate(history, 1):
+            parts.append(f"  {i}. {h}")
+        parts.append("")
+    parts.append(f"Topic sentence to generate{negation_note}: \"{plan.topic}\"")
+    parts.append("")
+    parts.append(ctx)
+    parts.append("")
+    parts.append(
+        "Write one concise radiology report sentence for this finding. "
+        "Maintain consistency with previously generated sentences."
     )
+    return "\n".join(parts)
 
 
 @dataclass
@@ -248,13 +286,15 @@ class Stage3cGenerator:
         self,
         plan: SentencePlan,
         cited_tokens: Sequence[EvidenceToken],
+        history: Optional[List[str]] = None,
     ) -> GeneratedSentence:
-        """Generate one report sentence conditioned on cited tokens."""
+        """Generate one report sentence conditioned on cited tokens and history."""
         prompt = _build_generation_prompt(
             plan,
             cited_tokens,
             self.cfg.include_bbox,
             self.cfg.include_scores,
+            history=history,
         )
         try:
             text = self._call_llm(prompt).strip()

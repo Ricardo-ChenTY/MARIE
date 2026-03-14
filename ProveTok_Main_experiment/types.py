@@ -85,6 +85,9 @@ class SentenceOutput:
     route_scores: Dict[int, float]
     rerouted: bool = False
     stop_reason: str = "no_violation"
+    original_topic: str = ""
+    generated: bool = False
+    generation_error: Optional[str] = None
 
 
 @dataclass

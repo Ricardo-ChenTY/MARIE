@@ -23,6 +23,7 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import List, Tuple
 
 import pandas as pd
 import numpy as np
@@ -430,6 +431,252 @@ def analyze_cases(sent_df: pd.DataFrame, out_path: Path, export_dir: Path) -> No
 
 
 # ══════════════════════════════════════════════════════════════════
+# Section 5b – M5 Statistical Protocol
+#   C_LLM, attention cost proxy, bootstrap CI, Holm correction
+# ══════════════════════════════════════════════════════════════════
+
+def _compute_cost_metrics(out_path: Path) -> pd.DataFrame:
+    """
+    Parse traces to compute per-case cost metrics:
+      - n_llm_gen_calls:  Stage 3c generation calls
+      - n_llm_judge_calls: Stage 5 judge calls
+      - C_LLM: total LLM calls (gen + judge + regen)
+      - C_attn: attention cost proxy = sum(k * B) per sentence
+                where k = top-k count, B = token bank size
+    """
+    trace_files = sorted((out_path / "cases").glob("*/*/trace.jsonl"))
+    rows = []
+    for tf in trace_files:
+        dataset = tf.parts[-3]
+        case_id = tf.parts[-2]
+        B = 128  # default
+        n_gen = 0
+        n_judge = 0
+        n_rerouted = 0
+        n_despecified = 0
+        n_sentences = 0
+        total_k = 0
+
+        with tf.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                obj = json.loads(line)
+                if obj.get("type") == "case_meta":
+                    B = obj.get("B", 128)
+                    continue
+                if obj.get("type") != "sentence":
+                    continue
+                n_sentences += 1
+                topk = obj.get("topk_token_ids") or []
+                total_k += len(topk)
+
+                if obj.get("generated", False):
+                    n_gen += 1
+                j5 = obj.get("stage5_judgements") or []
+                n_judge += len(j5)
+                if obj.get("rerouted_citations"):
+                    n_rerouted += 1
+                    # reroute implies one extra gen call
+                    if obj.get("generated", False):
+                        n_gen += 1
+                stop = obj.get("stop_reason", "")
+                if stop == "de_specified":
+                    n_despecified += 1
+                    n_gen += 1  # de-specify = one more gen call
+
+        C_LLM = n_gen + n_judge
+        C_attn = total_k * B  # k·B attention proxy
+
+        rows.append({
+            "dataset": dataset,
+            "case_id": case_id,
+            "n_sentences": n_sentences,
+            "n_llm_gen_calls": n_gen,
+            "n_llm_judge_calls": n_judge,
+            "n_rerouted": n_rerouted,
+            "n_despecified": n_despecified,
+            "C_LLM": C_LLM,
+            "C_attn": C_attn,
+            "B": B,
+        })
+    return pd.DataFrame(rows)
+
+
+def _bootstrap_ci(
+    values: np.ndarray,
+    R: int = 5000,
+    alpha: float = 0.05,
+    seed: int = 42,
+) -> Tuple:
+    """Patient-level bootstrap confidence interval."""
+    rng = np.random.RandomState(seed)
+    n = len(values)
+    boot_means = np.empty(R)
+    for i in range(R):
+        idx = rng.randint(0, n, size=n)
+        boot_means[i] = values[idx].mean()
+    lo = np.percentile(boot_means, 100 * alpha / 2)
+    hi = np.percentile(boot_means, 100 * (1 - alpha / 2))
+    return float(values.mean()), float(lo), float(hi)
+
+
+def _holm_correction(p_values: List[float], alpha: float = 0.05) -> List[dict]:
+    """
+    Holm step-down multiple comparison correction.
+    Returns list of {p, p_adjusted, rejected} sorted by original order.
+    """
+    m = len(p_values)
+    indexed = sorted(enumerate(p_values), key=lambda x: x[1])
+    results = [None] * m
+    max_adj = 0.0
+    for rank, (orig_idx, p) in enumerate(indexed):
+        adj = p * (m - rank)
+        adj = min(adj, 1.0)
+        adj = max(adj, max_adj)  # enforce monotonicity
+        max_adj = adj
+        results[orig_idx] = {
+            "p": p,
+            "p_adjusted": round(adj, 6),
+            "rejected": adj < alpha,
+        }
+    return results
+
+
+def analyze_m5_protocol(
+    out_path: Path,
+    export_dir: Path,
+    sent_df: pd.DataFrame,
+) -> None:
+    """M5 Statistical Protocol: cost accounting, bootstrap CI, Holm correction."""
+    _banner("M5 Statistical Protocol")
+
+    # ── 1. Cost metrics ──────────────────────────────────────────
+    cost_df = _compute_cost_metrics(out_path)
+    if cost_df.empty:
+        print("  [SKIP] No trace data for cost computation")
+        return
+
+    print("=== LLM Cost Accounting ===")
+    cost_agg = cost_df.groupby("dataset", as_index=False).agg(
+        cases=("case_id", "count"),
+        total_C_LLM=("C_LLM", "sum"),
+        mean_C_LLM=("C_LLM", "mean"),
+        total_C_attn=("C_attn", "sum"),
+        mean_C_attn=("C_attn", "mean"),
+        total_rerouted=("n_rerouted", "sum"),
+        total_despecified=("n_despecified", "sum"),
+    ).round(2)
+    print(cost_agg.to_string(index=False))
+    _save_csv(cost_agg, export_dir / "m5_cost_aggregate.csv")
+    _save_csv(cost_df, export_dir / "m5_cost_per_case.csv")
+
+    # ── 2. Bootstrap CI on violation rate ────────────────────────
+    print("\n=== Bootstrap CI (R=5000, α=0.05) ===")
+    boot_results = []
+    for ds in cost_df["dataset"].unique():
+        ds_sent = sent_df[sent_df["dataset"] == ds]
+        if ds_sent.empty:
+            continue
+        # Patient-level: aggregate violation rate per case
+        case_vio_rate = ds_sent.groupby("case_id")["has_violation"].mean().values
+        mean_val, lo, hi = _bootstrap_ci(case_vio_rate, R=5000)
+        boot_results.append({
+            "dataset": ds,
+            "metric": "violation_rate",
+            "mean": round(mean_val, 4),
+            "ci_lo": round(lo, 4),
+            "ci_hi": round(hi, 4),
+            "n_patients": len(case_vio_rate),
+        })
+        print(f"  {ds}: violation_rate = {mean_val:.4f}  95% CI [{lo:.4f}, {hi:.4f}]  (n={len(case_vio_rate)})")
+
+        # Also bootstrap C_LLM per case
+        ds_cost = cost_df[cost_df["dataset"] == ds]["C_LLM"].values
+        if len(ds_cost) > 0:
+            mean_c, lo_c, hi_c = _bootstrap_ci(ds_cost, R=5000)
+            boot_results.append({
+                "dataset": ds,
+                "metric": "C_LLM",
+                "mean": round(mean_c, 2),
+                "ci_lo": round(lo_c, 2),
+                "ci_hi": round(hi_c, 2),
+                "n_patients": len(ds_cost),
+            })
+            print(f"  {ds}: C_LLM = {mean_c:.2f}  95% CI [{lo_c:.2f}, {hi_c:.2f}]")
+
+    boot_df = pd.DataFrame(boot_results)
+    if not boot_df.empty:
+        _save_csv(boot_df, export_dir / "m5_bootstrap_ci.csv")
+
+    # ── 3. Holm correction across datasets × metrics ─────────────
+    print("\n=== Holm Step-Down Correction ===")
+    # Compare violation rates between datasets using permutation-style p-values
+    datasets = sorted(cost_df["dataset"].unique())
+    if len(datasets) >= 2:
+        from itertools import combinations
+        p_values = []
+        comparisons = []
+        for ds_a, ds_b in combinations(datasets, 2):
+            vals_a = sent_df[sent_df["dataset"] == ds_a].groupby("case_id")["has_violation"].mean().values
+            vals_b = sent_df[sent_df["dataset"] == ds_b].groupby("case_id")["has_violation"].mean().values
+            # Two-sample bootstrap test
+            obs_diff = abs(vals_a.mean() - vals_b.mean())
+            pooled = np.concatenate([vals_a, vals_b])
+            rng = np.random.RandomState(42)
+            n_a = len(vals_a)
+            count_extreme = 0
+            R_perm = 5000
+            for _ in range(R_perm):
+                rng.shuffle(pooled)
+                perm_diff = abs(pooled[:n_a].mean() - pooled[n_a:].mean())
+                if perm_diff >= obs_diff:
+                    count_extreme += 1
+            p_val = (count_extreme + 1) / (R_perm + 1)
+            p_values.append(p_val)
+            comparisons.append(f"{ds_a} vs {ds_b}")
+
+        if p_values:
+            holm_results = _holm_correction(p_values)
+            holm_rows = []
+            for comp, hr in zip(comparisons, holm_results):
+                hr["comparison"] = comp
+                holm_rows.append(hr)
+                status = "REJECTED" if hr["rejected"] else "not rejected"
+                print(f"  {comp}: p={hr['p']:.4f}, p_adj={hr['p_adjusted']:.4f} ({status})")
+            holm_df = pd.DataFrame(holm_rows)
+            _save_csv(holm_df, export_dir / "m5_holm_correction.csv")
+    else:
+        print("  [SKIP] Need ≥2 datasets for Holm correction")
+
+    # ── 4. Cost bar chart ────────────────────────────────────────
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    colors = ["#4C72B0", "#DD8452", "#55A868"][:len(datasets)]
+
+    # C_LLM distribution
+    for i, ds in enumerate(datasets):
+        vals = cost_df[cost_df["dataset"] == ds]["C_LLM"]
+        axes[0].hist(vals, bins=15, alpha=0.6, label=ds, color=colors[i], edgecolor="white")
+    axes[0].set_title("C_LLM per Case")
+    axes[0].set_xlabel("LLM calls")
+    axes[0].set_ylabel("# cases")
+    axes[0].legend()
+
+    # C_attn distribution
+    for i, ds in enumerate(datasets):
+        vals = cost_df[cost_df["dataset"] == ds]["C_attn"]
+        axes[1].hist(vals, bins=15, alpha=0.6, label=ds, color=colors[i], edgecolor="white")
+    axes[1].set_title("C_attn (Attention Cost Proxy) per Case")
+    axes[1].set_xlabel("k × B")
+    axes[1].set_ylabel("# cases")
+    axes[1].legend()
+
+    plt.tight_layout()
+    _save_fig(fig, export_dir / "m5_cost_distributions.png")
+
+
+# ══════════════════════════════════════════════════════════════════
 # Section 6 – Case Inspector
 # ══════════════════════════════════════════════════════════════════
 
@@ -679,6 +926,7 @@ def main() -> None:
         analyze_summary(out_path, export_dir, args.expected_cases_map)
         sent_df, _ = parse_traces(out_path, export_dir)
         analyze_cases(sent_df, out_path, export_dir)
+        analyze_m5_protocol(out_path, export_dir, sent_df)
 
         if args.inspect_n > 0:
             _banner("随机病例抽查")

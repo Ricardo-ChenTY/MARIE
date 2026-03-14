@@ -240,3 +240,77 @@ class Verifier:
         for s_out, plan in zip(sentence_outputs, plans):
             audits.append(self.audit_sentence(s_out, plan, all_tokens, token_map))
         return audits
+
+    def cross_sentence_check(
+        self,
+        sentence_outputs: Sequence[SentenceOutput],
+        plans: Sequence[SentencePlan],
+    ) -> List[RuleViolation]:
+        """
+        Cross-sentence consistency check (R6).
+
+        Detects inter-sentence contradictions:
+          - R6a LATERALITY: same anatomy keyword, conflicting laterality claims
+          - R6b PRESENCE: same anatomy keyword, one positive and one negated
+        """
+        violations: List[RuleViolation] = []
+
+        # Group sentences by anatomy keyword
+        by_anatomy: Dict[str, List[Tuple[SentenceOutput, SentencePlan]]] = {}
+        for s_out, plan in zip(sentence_outputs, plans):
+            kw = (plan.anatomy_keyword or "").lower().strip()
+            if not kw:
+                continue
+            by_anatomy.setdefault(kw, []).append((s_out, plan))
+
+        for kw, group in by_anatomy.items():
+            if len(group) < 2:
+                continue
+
+            # R6a: laterality conflict
+            lateralities: Dict[str, List[int]] = {}
+            for s_out, _ in group:
+                side = parse_laterality(s_out.text)
+                if side and side != "bilateral":
+                    lateralities.setdefault(side, []).append(s_out.sentence_index)
+
+            if "left" in lateralities and "right" in lateralities:
+                left_ids = lateralities["left"]
+                right_ids = lateralities["right"]
+                violations.append(RuleViolation(
+                    sentence_index=left_ids[0],
+                    rule_id="R6a_CROSS_LATERALITY",
+                    severity=0.7,
+                    message=(
+                        f"Cross-sentence laterality conflict for '{kw}': "
+                        f"sentences {left_ids} claim left, {right_ids} claim right"
+                    ),
+                    token_ids=[],
+                ))
+
+            # R6b: presence/absence conflict
+            pos_sents: List[int] = []
+            neg_sents: List[int] = []
+            for s_out, plan in group:
+                is_neg = plan.is_negated or detect_negation(s_out.text)
+                has_finding = any(
+                    w in s_out.text.lower() for w in POSITIVE_FINDING_WORDS
+                )
+                if is_neg and has_finding:
+                    neg_sents.append(s_out.sentence_index)
+                elif has_finding:
+                    pos_sents.append(s_out.sentence_index)
+
+            if pos_sents and neg_sents:
+                violations.append(RuleViolation(
+                    sentence_index=pos_sents[0],
+                    rule_id="R6b_CROSS_PRESENCE",
+                    severity=0.8,
+                    message=(
+                        f"Cross-sentence presence/absence conflict for '{kw}': "
+                        f"sentences {pos_sents} positive, {neg_sents} negated"
+                    ),
+                    token_ids=[],
+                ))
+
+        return violations

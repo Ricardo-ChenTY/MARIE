@@ -20,6 +20,7 @@ from ProveTok_Main_experiment.stage2_octree_splitter import AdaptiveOctreeSplitt
 from ProveTok_Main_experiment.stage3_router import Router
 from ProveTok_Main_experiment.stage4_verifier import Verifier
 from ProveTok_Main_experiment.stage0_4_runner import run_case_stage0_4, Stage04Components
+from ProveTok_Main_experiment.stage3c_generator import Stage3cGenerator, GeneratorConfig
 from ProveTok_Main_experiment.stage5_llm_judge import LLMJudge
 from ProveTok_Main_experiment.text_encoder import make_text_encoder
 
@@ -39,6 +40,7 @@ def _run_manifest(
     text_encoder: Callable[[str], List[float]],
     expected_cases: int = 0,
     llm_judge: Optional[LLMJudge] = None,
+    generator: Optional[Stage3cGenerator] = None,
     shuffle_seed: Optional[int] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, object]]:
     df_all = pd.read_csv(manifest_csv)
@@ -84,6 +86,7 @@ def _run_manifest(
         router=Router(cfg=cfg.router, text_encoder=text_encoder, w_proj=None),
         verifier=Verifier(cfg.verifier, RuleBasedAnatomyResolver()),
         llm_judge=llm_judge,
+        generator=generator,
     )
     comp.verifier = Verifier(cfg.verifier, comp.anatomy_resolver)
 
@@ -118,6 +121,9 @@ def _run_manifest(
                 "n_sentences": result["n_sentences"],
                 "n_violations": result["n_violations"],
                 "n_judge_confirmed": result.get("n_judge_confirmed", 0),
+                "n_generated": result.get("n_generated", 0),
+                "n_rerouted": result.get("n_rerouted", 0),
+                "n_despecified": result.get("n_despecified", 0),
                 "trace_jsonl": result["trace_jsonl"],
             }
         )
@@ -268,6 +274,45 @@ def main() -> None:
         default=None,
         help="HuggingFace access token for gated models (e.g. Llama-3). Falls back to HF_TOKEN env var.",
     )
+    # Stage 3c: Token-gated LLM generation
+    parser.add_argument(
+        "--stage3c_backend",
+        type=str,
+        default=None,
+        choices=("ollama", "openai", "anthropic", "huggingface"),
+        help="Enable Stage 3c LLM generation. If not set, pipeline uses original topic as text.",
+    )
+    parser.add_argument(
+        "--stage3c_model",
+        type=str,
+        default=None,
+        help="LLM model for Stage 3c generation. Defaults to llm_judge_model if same backend.",
+    )
+    parser.add_argument(
+        "--stage3c_temperature",
+        type=float,
+        default=0.3,
+        help="Temperature for Stage 3c generation. Default 0.3.",
+    )
+    parser.add_argument(
+        "--stage3c_max_tokens",
+        type=int,
+        default=256,
+        help="Max tokens for Stage 3c generation. Default 256.",
+    )
+    # Reroute config
+    parser.add_argument(
+        "--reroute_gamma",
+        type=float,
+        default=2.0,
+        help="Log-smooth penalty gamma: r' = r - gamma * ln(1 + sev). Default 2.0.",
+    )
+    parser.add_argument(
+        "--reroute_max_retry",
+        type=int,
+        default=1,
+        help="Max regeneration retries after rerouting. Default 1.",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -350,15 +395,15 @@ def main() -> None:
         st_device=args.text_encoder_device,
     )
 
+    # Common paths
+    _PROJECT_ROOT = Path(__file__).parent
+    _LOCAL_LLAMA = _PROJECT_ROOT / "models" / "Llama-3.1-8B-Instruct"
+
     # Stage 5 LLM judge setup
     llm_judge: Optional[LLMJudge] = None
     if args.llm_judge:
         import os
         from ProveTok_Main_experiment.stage5_llm_judge import LLMJudgeConfig
-
-        # Local model root: <project_root>/models/
-        _PROJECT_ROOT = Path(__file__).parent
-        _LOCAL_LLAMA = _PROJECT_ROOT / "models" / "Llama-3.1-8B-Instruct"
 
         _default_models = {
             "ollama": "qwen2.5:7b",
@@ -386,6 +431,55 @@ def main() -> None:
         llm_judge = LLMJudge(_judge_cfg)
         print(f"[Stage 5] LLM judge enabled: backend={args.llm_judge}, model={_model}, alpha={args.llm_judge_alpha}")
 
+    # Reroute config
+    cfg.reroute.gamma_penalty = float(args.reroute_gamma)
+    cfg.reroute.max_retry = int(args.reroute_max_retry)
+
+    # Stage 3c generator setup
+    generator: Optional[Stage3cGenerator] = None
+    if args.stage3c_backend:
+        import os as _os
+
+        _s3c_model = args.stage3c_model or (args.llm_judge_model if args.llm_judge else None)
+        if _s3c_model is None:
+            raise ValueError("--stage3c_model is required when --stage3c_backend is set (or set --llm_judge_model).")
+
+        # Resolve relative paths for huggingface backend
+        if args.stage3c_backend == "huggingface" and not _os.path.isabs(_s3c_model) and not _s3c_model.startswith("meta-llama/"):
+            _s3c_model = str(_PROJECT_ROOT / _s3c_model)
+
+        _gen_cfg = GeneratorConfig(
+            backend=args.stage3c_backend,
+            model=_s3c_model,
+            temperature=float(args.stage3c_temperature),
+            max_tokens=int(args.stage3c_max_tokens),
+            hf_torch_dtype=args.llm_judge_hf_torch_dtype,
+        )
+
+        # LLM sharing: if same model + huggingface backend, reuse the HF pipeline
+        _share_pipe = (
+            args.stage3c_backend == "huggingface"
+            and llm_judge is not None
+            and args.llm_judge == "huggingface"
+            and llm_judge._hf_pipe is not None
+            and _s3c_model == (args.llm_judge_model or str(_LOCAL_LLAMA))
+        )
+        if _share_pipe:
+            # Skip HF init by temporarily setting backend, then restore + inject pipe
+            _gen_cfg_tmp = GeneratorConfig(
+                backend="ollama",  # no-op init
+                model=_s3c_model,
+                temperature=_gen_cfg.temperature,
+                max_tokens=_gen_cfg.max_tokens,
+            )
+            generator = Stage3cGenerator(_gen_cfg_tmp)
+            generator.cfg = _gen_cfg  # restore real config
+            generator._hf_pipe = llm_judge._hf_pipe
+            print(f"[Stage 3c] Sharing HF pipeline with Stage 5 judge: {_s3c_model}")
+        else:
+            generator = Stage3cGenerator(_gen_cfg)
+            print(f"[Stage 3c] Generator enabled: backend={args.stage3c_backend}, model={_s3c_model}")
+
     ct_df, ct_meta = _run_manifest(
         dataset_name="ctrate",
         manifest_csv=ctrate_csv,
@@ -401,6 +495,7 @@ def main() -> None:
         text_encoder=text_encoder,
         expected_cases=int(args.expected_cases_per_dataset),
         llm_judge=llm_judge,
+        generator=generator,
         shuffle_seed=args.shuffle_seed,
     )
     rg_df, rg_meta = _run_manifest(
@@ -418,6 +513,7 @@ def main() -> None:
         text_encoder=text_encoder,
         expected_cases=int(args.expected_cases_per_dataset),
         llm_judge=llm_judge,
+        generator=generator,
         shuffle_seed=args.shuffle_seed,
     )
     summary = pd.concat([ct_df, rg_df], axis=0, ignore_index=True)
@@ -452,6 +548,11 @@ def main() -> None:
         "llm_judge_backend": str(args.llm_judge) if args.llm_judge else None,
         "llm_judge_model": str(args.llm_judge_model) if args.llm_judge else None,
         "llm_judge_alpha": float(args.llm_judge_alpha) if args.llm_judge else None,
+        "stage3c_backend": str(args.stage3c_backend) if args.stage3c_backend else None,
+        "stage3c_model": str(args.stage3c_model) if args.stage3c_backend else None,
+        "stage3c_temperature": float(args.stage3c_temperature) if args.stage3c_backend else None,
+        "reroute_gamma": float(cfg.reroute.gamma_penalty),
+        "reroute_max_retry": int(cfg.reroute.max_retry),
     }
     with (out_dir / "run_meta.json").open("w", encoding="utf-8") as f:
         json.dump(run_meta, f, ensure_ascii=False, indent=2)

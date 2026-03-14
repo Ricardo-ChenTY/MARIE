@@ -11,10 +11,11 @@ from .stage0_scorer import DeterministicArtifactScorer
 from .stage1_swinunetr_encoder import FrozenSwinUNETREncoder
 from .stage2_octree_splitter import AdaptiveOctreeSplitter
 from .stage3_router import Router
+from .stage3c_generator import Stage3cGenerator, despecify_text
 from .stage4_verifier import Verifier
 from .stage5_llm_judge import LLMJudge
 from .token_bank_io import save_token_bank_case
-from .types import BBox3D, SentenceOutput
+from .types import BBox3D, EvidenceToken, SentenceOutput
 
 
 @dataclass
@@ -27,6 +28,7 @@ class Stage04Components:
     router: Router
     verifier: Verifier
     llm_judge: Optional[LLMJudge] = None
+    generator: Optional[Stage3cGenerator] = None
 
 
 def run_case_stage0_4(
@@ -66,26 +68,52 @@ def run_case_stage0_4(
     comp.verifier.volume_shape = tuple(int(x) for x in volume.shape)
     plans = comp.planner.plan(tokens)
 
+    token_map = {t.token_id: t for t in tokens}
+
     sentence_outputs: List[SentenceOutput] = []
     sentence_logs: List[Dict[str, object]] = []
+    generated_history: List[str] = []  # accumulate for sentence history context
     for plan in plans:
         q_s = comp.router.text_encoder(plan.topic)
         anatomy_bbox = comp.anatomy_resolver(plan.anatomy_keyword)
         scores = comp.router.score_tokens(plan.topic, tokens, anatomy_bbox)
         topk_ids = sorted(scores.keys(), key=lambda tid: (-scores[tid], tid))[: cfg.router.k_per_sentence]
         topk_scores = [float(scores[tid]) for tid in topk_ids]
+
+        # Stage 3c: LLM generation conditioned on routed tokens
+        gen_text = plan.topic
+        gen_flag = False
+        gen_error: Optional[str] = None
+        if comp.generator is not None:
+            cited_tokens = [token_map[tid] for tid in topk_ids if tid in token_map]
+            gen_result = comp.generator.generate_sentence(
+                plan, cited_tokens, history=generated_history or None
+            )
+            gen_text = gen_result.generated_text
+            gen_flag = gen_result.error is None
+            gen_error = gen_result.error
+
         sentence_outputs.append(
             SentenceOutput(
                 sentence_index=plan.sentence_index,
-                text=plan.topic,
+                text=gen_text,
                 citations=topk_ids,
                 route_scores=scores,
+                original_topic=plan.topic,
+                generated=gen_flag,
+                generation_error=gen_error,
             )
         )
+        # Accumulate history for subsequent sentences
+        generated_history.append(gen_text)
+
         sentence_logs.append(
             {
                 "sentence_index": int(plan.sentence_index),
-                "sentence_text": plan.topic,
+                "sentence_text": gen_text,
+                "original_topic": plan.topic,
+                "generated": gen_flag,
+                "generation_error": gen_error,
                 "anatomy_keyword": plan.anatomy_keyword,
                 "q_s": [float(x) for x in q_s],
                 "topk_token_ids": [int(x) for x in topk_ids],
@@ -95,19 +123,79 @@ def run_case_stage0_4(
 
     audits = comp.verifier.audit_all(sentence_outputs, plans, tokens)
 
-    # Stage 5: LLM judge — confirm/dismiss violations and apply score penalty
+    # Cross-sentence consistency check (R6)
+    cross_violations = comp.verifier.cross_sentence_check(sentence_outputs, plans)
+    if cross_violations:
+        # Attach cross-sentence violations to the relevant audits
+        audit_map = {a.sentence_index: a for a in audits}
+        for cv in cross_violations:
+            a = audit_map.get(cv.sentence_index)
+            if a is not None:
+                a.violations.append(cv)
+                a.passed = False
+
+    # Stage 5: LLM judge — confirm/dismiss violations, log-smooth penalty, re-top-k, regenerate
     stage5_judgements: Dict[int, object] = {}
+    gamma = cfg.reroute.gamma_penalty
+    max_retry = cfg.reroute.max_retry
+
     if comp.llm_judge is not None:
         judgements = comp.llm_judge.judge_all(sentence_outputs, audits)
-        for s_out in sentence_outputs:
+        for idx, s_out in enumerate(sentence_outputs):
             j = judgements.get(s_out.sentence_index)
             if j is None or not j.any_confirmed():
                 continue
-            # Apply CP .tex penalty: S'_i = S_i * (1 - alpha * sev_i)
-            penalized = comp.llm_judge.reroute_scores(s_out.route_scores, j.verdicts)
+
+            # Per-token log-smooth penalty: r'_i = r_i - γ·ln(1 + sev_i)
+            audit = next((a for a in audits if a.sentence_index == s_out.sentence_index), None)
+            penalized = comp.llm_judge.reroute_scores_log_smooth(
+                s_out.route_scores, j.verdicts, gamma,
+                violations=audit.violations if audit else None,
+            )
+            # Re-top-k: select new top-k from penalized scores
+            new_topk_ids = sorted(
+                penalized.keys(), key=lambda tid: (-penalized[tid], tid)
+            )[: cfg.router.k_per_sentence]
+
             s_out.route_scores = penalized
+            s_out.citations = new_topk_ids
             s_out.rerouted = True
-            s_out.stop_reason = "llm_judge_penalty"
+            s_out.stop_reason = "log_smooth_reroute"
+
+            # Regenerate with new citations (if generator available and retry > 0)
+            if comp.generator is not None and max_retry > 0:
+                plan = plans[idx]
+                cited_tokens = [token_map[tid] for tid in new_topk_ids if tid in token_map]
+                # Build history from all other sentences (exclude current)
+                regen_history = [
+                    so.text for so in sentence_outputs if so.sentence_index != s_out.sentence_index
+                ] or None
+                gen_result = comp.generator.generate_sentence(plan, cited_tokens, history=regen_history)
+                s_out.text = gen_result.generated_text
+                s_out.generated = gen_result.error is None
+                s_out.generation_error = gen_result.error
+
+                # Re-verify after reroute; if still failing → de-specify fallback
+                re_audit = comp.verifier.audit_all([s_out], [plan], tokens)
+                if re_audit and re_audit[0].violations:
+                    despec_topic = despecify_text(plan.topic)
+                    if despec_topic != plan.topic:
+                        despec_plan = type(plan)(
+                            sentence_index=plan.sentence_index,
+                            topic=despec_topic,
+                            anatomy_keyword=plan.anatomy_keyword,
+                            expected_level_range=plan.expected_level_range,
+                            expected_volume_range=plan.expected_volume_range,
+                            is_negated=plan.is_negated,
+                        )
+                        gen_result = comp.generator.generate_sentence(
+                            despec_plan, cited_tokens, history=regen_history,
+                        )
+                        s_out.text = gen_result.generated_text
+                        s_out.generated = gen_result.error is None
+                        s_out.generation_error = gen_result.error
+                        s_out.stop_reason = "de_specified"
+
             stage5_judgements[s_out.sentence_index] = [
                 {
                     "rule_id": v.rule_id,
@@ -119,9 +207,16 @@ def run_case_stage0_4(
             ]
 
     violations_by_sentence = {a.sentence_index: [asdict(v) for v in a.violations] for a in audits}
+    s_out_map = {s.sentence_index: s for s in sentence_outputs}
     for row in sentence_logs:
-        row["violations"] = violations_by_sentence.get(row["sentence_index"], [])
-        row["stage5_judgements"] = stage5_judgements.get(row["sentence_index"], [])
+        si = row["sentence_index"]
+        row["violations"] = violations_by_sentence.get(si, [])
+        row["stage5_judgements"] = stage5_judgements.get(si, [])
+        s = s_out_map.get(si)
+        if s is not None and s.rerouted:
+            row["rerouted_citations"] = [int(x) for x in s.citations]
+            row["sentence_text"] = s.text  # update with regenerated text
+            row["stop_reason"] = s.stop_reason
 
     b_plan = cfg.router.planning_budget(cfg.split.token_budget_b)
     trace_jsonl = out_dir / "trace.jsonl"
@@ -149,11 +244,18 @@ def run_case_stage0_4(
         for v_list in stage5_judgements.values()
         if isinstance(v_list, list) and any(v.get("confirmed") for v in v_list)  # type: ignore[union-attr]
     )
+    n_generated = sum(1 for s in sentence_outputs if s.generated)
+    n_rerouted = sum(1 for s in sentence_outputs if s.rerouted)
+    n_despecified = sum(1 for s in sentence_outputs if s.stop_reason == "de_specified")
     return {
         "case_id": case_id,
         "n_tokens": len(tokens),
         "n_sentences": len(sentence_logs),
         "n_violations": int(n_violate),
         "n_judge_confirmed": int(n_judge_confirmed),
+        "n_generated": int(n_generated),
+        "n_rerouted": int(n_rerouted),
+        "n_despecified": int(n_despecified),
+        "n_cross_violations": len(cross_violations),
         "trace_jsonl": str(trace_jsonl),
     }

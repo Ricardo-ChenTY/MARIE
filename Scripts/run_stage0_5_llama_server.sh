@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
-# Step 2: Stage 0-5  (Stage 0-4 + Llama-3.1-8B LLM 裁判)
+# Step 2: Stage 0-5 Full Pipeline
+#   Stage 0-4 + Stage 3c LLM Generation + Stage 5 Rerouting
 #
 # 前置条件:
 #   models/Llama-3.1-8B-Instruct/ 目录存在（已下载模型）
@@ -49,8 +50,10 @@ if [ ! -d "${MODEL_DIR}" ]; then
 fi
 
 echo "=========================================="
-echo "Stage 0-5  |  450/450  |  Llama-3.1-8B 裁判"
+echo "Stage 0-5 Full Pipeline  |  450/450"
+echo "Stage 3c: LLM Generation + Stage 5: Log-smooth Rerouting"
 echo "tau_iou = 0.04  |  token_budget_b = 128  |  shuffle_seed = 42"
+echo "reroute_gamma = 2.0  |  reroute_max_retry = 1"
 echo "模型: ${MODEL_DIR}"
 echo "OUT:  ${OUT_DIR}"
 echo "=========================================="
@@ -63,7 +66,7 @@ python "${PROJ_ROOT}/Scripts/ckpt_probe.py" \
   --feature_size 48 \
   --save_report "${OUT_DIR}/ckpt_probe_report.json"
 
-# 2. 主实验 + Stage 5 LLM 裁判
+# 2. 主实验: Stage 0-4 + Stage 3c Generation + Stage 5 Rerouting
 python "${PROJ_ROOT}/run_mini_experiment.py" \
   --ctrate_csv    "${CTRATE_CSV}" \
   --radgenome_csv "${RADGENOME_CSV}" \
@@ -94,7 +97,13 @@ python "${PROJ_ROOT}/run_mini_experiment.py" \
   --llm_judge huggingface \
   --llm_judge_model "${MODEL_DIR}" \
   --llm_judge_hf_torch_dtype bfloat16 \
-  --llm_judge_alpha 0.5 2>&1 | tee "${OUT_DIR}/run.log"
+  --llm_judge_alpha 0.5 \
+  --stage3c_backend huggingface \
+  --stage3c_model "${MODEL_DIR}" \
+  --stage3c_temperature 0.3 \
+  --stage3c_max_tokens 256 \
+  --reroute_gamma 2.0 \
+  --reroute_max_retry 1 2>&1 | tee "${OUT_DIR}/run.log"
 
 # 3. 结构验收
 python "${PROJ_ROOT}/validate_stage0_4_outputs.py" \
@@ -104,8 +113,10 @@ python "${PROJ_ROOT}/validate_stage0_4_outputs.py" \
   --save_report "${OUT_DIR}/validation_report.json"
 
 echo ""
-echo "✅ Stage 0-5 完成: ${OUT_DIR}"
+echo "✅ Stage 0-5 Full Pipeline 完成: ${OUT_DIR}"
 echo ""
-echo "查看 LLM 裁判效果:"
-echo "  summary.csv 中 n_judge_confirmed 列 = LLM 确认的违规句数"
-echo "  n_violations 应低于纯 Stage 0-4 的结果（误报被过滤）"
+echo "查看结果:"
+echo "  summary.csv 中 n_generated 列 = LLM 生成的句子数"
+echo "  n_rerouted 列 = 重路由后重新生成的句子数"
+echo "  n_judge_confirmed 列 = LLM 确认的违规句数"
+echo "  trace.jsonl 中 generated_text / rerouted_citations = 生成文本和重路由引用"

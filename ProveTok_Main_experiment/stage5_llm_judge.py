@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
@@ -280,6 +281,48 @@ class LLMJudge:
         max_sev = max(confirmed_sevs)
         penalty = max(0.0, 1.0 - self.cfg.alpha * max_sev)
         return {tid: s * penalty for tid, s in scores.items()}
+
+    def reroute_scores_log_smooth(
+        self,
+        scores: Dict[int, float],
+        verdicts: List[JudgeVerdict],
+        gamma: float,
+        violations: Optional[Sequence["RuleViolation"]] = None,
+    ) -> Dict[int, float]:
+        """
+        Log-smooth penalty per paper: r'_i = r_i - γ·ln(1 + sev_i).
+
+        Per-token mode (when violations provided): each token is penalized only
+        by the max severity of confirmed violations that cite it.
+        Sentence-level fallback (no violations): uniform penalty from max severity.
+        """
+        confirmed_sevs = [v.adjusted_severity for v in verdicts if v.confirmed]
+        if not confirmed_sevs:
+            return scores
+
+        # Build per-token severity map from violation token_ids
+        if violations is not None:
+            # Match verdicts to violations by rule_id to get token_ids
+            verdict_map = {v.rule_id: v for v in verdicts if v.confirmed}
+            token_sev: Dict[int, float] = {}
+            for viol in violations:
+                vd = verdict_map.get(viol.rule_id)
+                if vd is None:
+                    continue
+                for tid in viol.token_ids:
+                    token_sev[tid] = max(token_sev.get(tid, 0.0), vd.adjusted_severity)
+
+            if token_sev:
+                result = {}
+                for tid, s in scores.items():
+                    sev = token_sev.get(tid, 0.0)
+                    result[tid] = s - gamma * math.log(1.0 + sev)
+                return result
+
+        # Fallback: sentence-level uniform penalty
+        max_sev = max(confirmed_sevs)
+        penalty = gamma * math.log(1.0 + max_sev)
+        return {tid: s - penalty for tid, s in scores.items()}
 
     def judge_all(
         self,
