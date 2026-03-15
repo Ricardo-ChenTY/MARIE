@@ -76,7 +76,14 @@ def run_case_stage0_4(
     for plan in plans:
         q_s = comp.router.text_encoder(plan.topic)
         anatomy_bbox = comp.anatomy_resolver(plan.anatomy_keyword)
-        scores = comp.router.score_tokens(plan.topic, tokens, anatomy_bbox)
+        if cfg.router.spatial_filter_semantic_rerank:
+            scores = comp.router.score_tokens_spatial_filter_semantic_rerank(
+                plan.topic, tokens, anatomy_bbox,
+                tau_iou=cfg.verifier.tau_anatomy_iou,
+                expected_level_range=plan.expected_level_range,
+            )
+        else:
+            scores = comp.router.score_tokens(plan.topic, tokens, anatomy_bbox)
         topk_ids = sorted(scores.keys(), key=lambda tid: (-scores[tid], tid))[: cfg.router.k_per_sentence]
         topk_scores = [float(scores[tid]) for tid in topk_ids]
 

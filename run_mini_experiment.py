@@ -226,6 +226,15 @@ def main() -> None:
             "Recommended when w_proj is untrained (identity). Semantic score used as tiebreaker only."
         ),
     )
+    parser.add_argument(
+        "--spatial_filter_semantic_rerank",
+        action="store_true",
+        help=(
+            "E1 routing: hard spatial filter (IoU >= tau_iou, correct depth level) "
+            "then semantic rerank by W_proj cosine. Combines spatial validity with "
+            "semantic relevance."
+        ),
+    )
     # Stage 5: LLM judge
     parser.add_argument(
         "--llm_judge",
@@ -377,6 +386,8 @@ def main() -> None:
         cfg.verifier.r1_min_same_side_ratio = ratio
     if args.anatomy_spatial_routing:
         cfg.router.anatomy_spatial_routing = True
+    if args.spatial_filter_semantic_rerank:
+        cfg.router.spatial_filter_semantic_rerank = True
     if args.lateral_tolerance is not None:
         tol = float(args.lateral_tolerance)
         if not (0.0 <= tol <= 0.5):
@@ -563,6 +574,7 @@ def main() -> None:
         "lateral_tolerance": float(cfg.verifier.lateral_tolerance),
         "w_proj_path": str(args.w_proj_path) if args.w_proj_path else None,
         "anatomy_spatial_routing": bool(cfg.router.anatomy_spatial_routing),
+        "spatial_filter_semantic_rerank": bool(cfg.router.spatial_filter_semantic_rerank),
         "llm_judge_backend": str(args.llm_judge) if args.llm_judge else None,
         "llm_judge_model": str(args.llm_judge_model) if args.llm_judge else None,
         "llm_judge_alpha": float(args.llm_judge_alpha) if args.llm_judge else None,

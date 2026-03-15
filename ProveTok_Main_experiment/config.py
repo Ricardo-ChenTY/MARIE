@@ -32,6 +32,7 @@ class RouterConfig:
     planning_budget_cap: int = 32
     anatomy_spatial_routing: bool = False
     anatomy_tiebreak_eps: float = 0.05
+    spatial_filter_semantic_rerank: bool = False
 
     def planning_budget(self, token_budget_b: int) -> int:
         return min(self.planning_budget_cap, token_budget_b // 4)

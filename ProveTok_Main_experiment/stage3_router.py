@@ -62,6 +62,43 @@ class Router:
         q = self.text_encoder(topic)
         return {t.token_id: self._routing_score(q, t, anatomy_bbox) for t in tokens}
 
+    def score_tokens_spatial_filter_semantic_rerank(
+        self,
+        topic: str,
+        tokens: Sequence[EvidenceToken],
+        anatomy_bbox: Optional[BBox3D],
+        tau_iou: float = 0.04,
+        expected_level_range: Optional[tuple] = None,
+    ) -> Dict[int, float]:
+        """
+        E1 routing: hard spatial filter + semantic rerank.
+        1. Filter tokens by IoU ≥ tau_iou (if anatomy_bbox available)
+           and level within expected_level_range (if available).
+        2. Rank filtered tokens by semantic score (W_proj cosine).
+        3. Assign scores so filtered tokens rank above unfiltered ones.
+        """
+        q = normalize_l2(self.text_encoder(topic))
+        scores: Dict[int, float] = {}
+        for t in tokens:
+            v = self._projected_token(t.feature)
+            semantic = dot(q, v)
+            passes_filter = True
+            if anatomy_bbox is not None:
+                iou = t.bbox.iou(anatomy_bbox)
+                if iou < tau_iou:
+                    passes_filter = False
+            if expected_level_range is not None:
+                lo, hi = expected_level_range
+                if not (lo <= t.level <= hi):
+                    passes_filter = False
+            # Tokens passing filter get score in [1, 2], others in [0, 1)
+            # This guarantees any filtered token ranks above any unfiltered one.
+            if passes_filter:
+                scores[t.token_id] = 1.0 + (semantic + 1.0) / 2.0  # map [-1,1] → [1,2]
+            else:
+                scores[t.token_id] = (semantic + 1.0) / 2.0  # map [-1,1] → [0,1)
+        return scores
+
     def route(
         self,
         topic: str,
