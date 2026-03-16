@@ -34,9 +34,10 @@
 | D | k sweep | filter+rerank | trained | OFF | OFF | — | — | 确定最优 k_per_sentence |
 | B | B2 | filter+rerank | trained | **ON** | OFF | — | — | Stage 3c 增量效果 |
 | C | C2 | filter+rerank | trained | **ON** | **ON** | — | — | Stage 5 增量效果 |
-| B2' | B2' | filter+rerank | trained | **ON** | OFF | **ON** | — | Evidence Card 对生成的约束效果 |
-| C2' | C2' | filter+rerank | trained | **ON** | **ON** | **ON** | — | Evidence Card + Stage 5 组合效果 |
-| D2 | D2 | filter+rerank | trained | **ON** | **ON** | **ON** | **ON** | Action-dispatched repair executor |
+| B2' | B2' | filter+rerank | trained | **ON** | OFF | **ON** (v1) | — | Evidence Card 对生成的约束效果 |
+| C2' | C2' | filter+rerank | trained | **ON** | **ON** | **ON** (v1) | — | Evidence Card + Stage 5 组合效果 |
+| D2 | D2 | filter+rerank | trained | **ON** | **ON** | **ON** (v1) | **ON** | Action-dispatched repair executor |
+| B2'v2 | B2'v2 | filter+rerank | trained | **ON** | OFF | **ON** (v2) | — | Evidence Card v2: strict laterality + depth gate + same-side cleanup |
 
 ---
 
@@ -350,9 +351,10 @@ C2' 的 Stage 5 使用通用的 log-smooth penalty + reroute + regenerate 流程
 |------|:---:|:------:|:--:|:------:|:------:|:------:|:------:|:-------:|:------:|
 | B2 | ON | — | — | 0.500 | 0.427 | 0.373 | 0.330 | 0.525 | 0.526 |
 | C2 | ON | — | ON | 0.490 | 0.415 | 0.360 | 0.317 | 0.515 | 0.516 |
-| **B2'** | ON | **ON** | — | **0.600** | **0.552** | **0.514** | **0.482** | **0.650** | **0.618** |
-| **C2'** | ON | **ON** | ON | **0.608** | **0.560** | **0.522** | **0.489** | **0.660** | **0.629** |
-| D2 | ON | ON | ON | 0.596 | 0.547 | 0.507 | 0.473 | 0.647 | 0.620 |
+| B2' | ON | v1 | — | 0.600 | 0.552 | 0.514 | 0.482 | 0.650 | 0.618 |
+| C2' | ON | v1 | ON | 0.608 | 0.560 | 0.522 | 0.489 | 0.660 | 0.629 |
+| D2 | ON | v1 | ON | 0.596 | 0.547 | 0.507 | 0.473 | 0.647 | 0.620 |
+| **B2'v2** | ON | **v2** | — | **0.600** | **0.545** | **0.501** | **0.463** | **0.629** | **0.608** |
 
 > Reference = original topic sentence (from ground-truth report).
 > Metrics computed with NLTK (BLEU, METEOR) + rouge-score (ROUGE-L).
@@ -361,28 +363,32 @@ C2' 的 Stage 5 使用通用的 log-smooth penalty + reroute + regenerate 流程
 
 | 对比 | BLEU-4 | ROUGE-L | METEOR | ViolRate |
 |------|:------:|:-------:|:------:|:--------:|
-| B2 → B2' (+EvCard) | 0.330→0.482 (**+46%**) | 0.525→0.650 (**+24%**) | 0.526→0.618 (**+17%**) | 5.6%→3.7% (**−34%**) |
-| C2 → C2' (+EvCard) | 0.317→0.489 (**+54%**) | 0.515→0.660 (**+28%**) | 0.516→0.629 (**+22%**) | 5.7%→3.8% (**−33%**) |
+| B2 → B2' (+EvCard v1) | 0.330→0.482 (**+46%**) | 0.525→0.650 (**+24%**) | 0.526→0.618 (**+17%**) | 11.1%→9.2% (**−17%**) |
+| B2' → B2'v2 (+EvCard v2) | 0.482→0.463 (−3.9%) | 0.650→0.629 (−3.3%) | 0.618→0.608 (−1.6%) | 9.2%→3.9% (**−57.6%**) |
 
-Evidence Card 约束了 LLM 不生成不恰当的空间描述词，使生成文本更贴近 ground truth 措辞。这不是 trade-off，而是 **win-win**：空间一致性提升的同时，文本质量也显著提升。
+Evidence Card v1 约束了 LLM 不生成不恰当的空间描述词，使生成文本更贴近 ground truth 措辞（NLG **win-win**）。
+Evidence Card v2 进一步以不到 4% 的 NLG 代价换来 57% 的 violation 降幅。
 
-### 8.6 剩余违规分布（B2' 最优配置）
+### 8.6 剩余违规分布（B2'v2 最优配置, 56 violations）
 
 ```
-R1_LATERALITY:   23 / 53  (43.4%)
-R3_DEPTH:        19 / 53  (35.8%)
-R6b_CROSS:       10 / 53  (18.9%)
-R6a_CROSS:        1 / 53  ( 1.9%)
-R2_ANATOMY:       0 / 53  ( 0.0%)
+R1_LATERALITY:   39 / 56  (69.6%)
+R6b_CROSS_PRES:  13 / 56  (23.2%)
+R3_DEPTH:         4 / 56  ( 7.1%)
+R6a_CROSS:        0 / 56  ( 0.0%)
+R2_ANATOMY:       0 / 56  ( 0.0%)
 ```
 
-### 8.7 最优配置（B2'）
+### 8.7 最优配置（B2'v2）
 
 ```
 路由:        E1 (spatial filter + semantic rerank, k=8)
 W_proj:      trained (contrastive alignment)
 Stage 3c:    Llama-3.1-8B-Instruct, temperature=0.3, max_tokens=256
-Evidence Card: laterality_allowed threshold = 0.8
+Evidence Card: v2 (strict_laterality=True)
+  - P1: laterality gate: SSR ≥ 0.9, min 2 non-cross tokens
+  - P2: depth gate: ≥ 75% tokens in expected level range
+  - P3: same-side + in-range token cleanup before generation
 Stage 5:     可选（增量效果微小）
 ```
 
@@ -449,7 +455,60 @@ has_right = bool(_RIGHT_RE.search(text))
 
 ---
 
-## 11. 附录：k sweep 详细数据（修正后）
+## 11. Evidence Card v2 消融实验（B2'v2）
+
+### 11.1 动机
+
+B2'（Evidence Card v1）虽已是最优配置，但残差违规分析显示：
+- **R1 (23)**：LLM 在 evidence 侧别不够纯时仍生成 laterality claim
+- **R3 (19)**：cited token 在 expected depth range 之外时 LLM 仍生成 depth-specific 描述
+
+v2 通过三个 patch 解决这些问题：
+
+### 11.2 三个 Patch
+
+| Patch | 改动 | 文件 | 作用 |
+|-------|------|------|------|
+| **P1: Strict laterality gate** | `laterality_allowed(strict=True)` 要求 SSR ≥ 0.9 且至少 2 个 non-cross token；bilateral 要求每侧 ≥ 2 | `evidence_card.py` | 防止 evidence 不纯时允许 laterality claim |
+| **P2: Depth gate** | 新增 `depth_allowed()` 方法，要求 ≥ 75% token 在 expected level range 内才允许 depth 描述 | `evidence_card.py` | 防止 out-of-range evidence 导致不当 depth claim |
+| **P3: Same-side cleanup** | 生成前移除 opposite-side 和 out-of-range token（保底 ≥ 2 tokens） | `stage0_4_runner.py` | 清理输入端的噪声 token |
+
+### 11.3 结果对比 (B2' v1 → v2)
+
+| 指标 | B2' (v1) | B2'v2 | 变化 |
+|------|:--------:|:-----:|:----:|
+| **Total violations** | **132 (9.2%)** | **56 (3.9%)** | **−57.6%** |
+| R1_LATERALITY | 102 | 39 | −61.8% |
+| R3_DEPTH | 19 | 4 | −78.9% |
+| R6a_CROSS_LATERALITY | 1 | 0 | 消除 |
+| R6b_CROSS_PRESENCE | 10 | 13 | +3 |
+| R2_ANATOMY | 0 | 0 | — |
+| BLEU-4 | 0.482 | 0.463 | −3.9% |
+| ROUGE-L | 0.650 | 0.629 | −3.3% |
+| METEOR | 0.618 | 0.608 | −1.6% |
+
+### 11.4 分析
+
+1. **R1 降幅最大**（102→39, −62%）：strict laterality gate 成功阻止了 evidence 不纯时的 laterality claim；same-side cleanup 进一步纯化了 cited token set
+2. **R3 几乎消除**（19→4, −79%）：depth gate 阻止了 out-of-range token 导致的不当 depth claim；depth cleanup 移除了超出预期 level range 的 token
+3. **R6b 轻微上升**（10→13, +3）：cross-sentence presence/absence 冲突与 evidence card 无关，属于结构性基线
+4. **NLG 代价极小**（BLEU-4 −3.9%）：因为限制更严格，LLM 倾向省略不确定的 laterality/depth 描述，使用更泛化表述，导致与 reference 的词汇重叠略少
+
+**结论**：v2 以不到 4% 的 NLG 代价换来 57% 的 violation 降幅，trade-off 非常合理。
+
+### 11.5 残差违规构成（B2'v2, 56 violations）
+
+```
+R1_LATERALITY:   39 / 56  (69.6%)  — LLM 仍偶尔违反 laterality constraint
+R6b_CROSS_PRES:  13 / 56  (23.2%)  — 跨句 presence/absence 冲突（结构性）
+R3_DEPTH:         4 / 56  ( 7.1%)  — 残余 depth 违规
+```
+
+**可控违规率**：排除结构性 R6b 后，实际可控违规 = 43/1437 = **3.0%**。
+
+---
+
+## 12. 附录：k sweep 详细数据（修正后）
 
 | k | Total | R1 | R2 | R3 | R6b | Rate |
 |---|:-----:|:---:|:---:|:---:|:---:|:----:|
@@ -463,20 +522,24 @@ has_right = bool(_RIGHT_RE.search(text))
 
 ---
 
-## 12. Paper-Ready 综合结果表
+## 13. Paper-Ready 综合结果表
 
 > 用于论文 Table 6（主实验结果），包含空间一致性指标 + NLG 指标。
 
 | Condition | S3c | EvCard | S5 | Repair | ViolRate↓ | R1↓ | R3↓ | BLEU-4↑ | ROUGE-L↑ | METEOR↑ |
 |-----------|:---:|:------:|:--:|:------:|:---------:|:---:|:---:|:-------:|:--------:|:-------:|
-| A0 (baseline) | — | — | — | — | 7.5% | 0 | 91 | — | — | — |
-| A1 (+W_proj) | — | — | — | — | 6.8% | 0 | 80 | — | — | — |
-| E1 (+filter+rerank) | — | — | — | — | 4.9% | 35 | 19 | — | — | — |
-| B2 (+Stage 3c) | ON | — | — | — | 5.6% | 46 | 19 | 0.330 | 0.525 | 0.526 |
-| B2' (+EvCard) | ON | ON | — | — | **3.7%** | 23 | 19 | **0.482** | **0.650** | **0.618** |
-| C2' (+Stage 5) | ON | ON | ON | — | 3.8% | 22 | 19 | 0.489 | 0.660 | 0.629 |
-| D2 (+Repair) | ON | ON | ON | ON | 4.0% | 24 | 19 | 0.473 | 0.647 | 0.620 |
+| A0 (baseline) | — | — | — | — | 14.5% | 100 | 91 | — | — | — |
+| A1 (+W_proj) | — | — | — | — | 13.2% | 92 | 80 | — | — | — |
+| E1 (+filter+rerank) | — | — | — | — | 11.4% | 128 | 19 | — | — | — |
+| B2 (+Stage 3c) | ON | — | — | — | 11.1% | 124 | 19 | 0.330 | 0.525 | 0.526 |
+| B2' (+EvCard v1) | ON | v1 | — | — | 9.2% | 102 | 19 | 0.482 | 0.650 | 0.618 |
+| C2' (+Stage 5) | ON | v1 | ON | — | 9.0% | 97 | 19 | 0.489 | 0.660 | 0.629 |
+| D2 (+Repair) | ON | v1 | ON | ON | 9.2% | 99 | 19 | 0.473 | 0.647 | 0.620 |
+| **B2'v2 (+EvCard v2)** | **ON** | **v2** | — | — | **3.9%** | **39** | **4** | **0.463** | **0.629** | **0.608** |
 
 > A0–E1 无 NLG 指标：text = gold topic passthrough（无 LLM 生成）。
 > NLG reference = ground-truth report sentence（original topic）。
 > 1437 sentences across 180 test cases (90 CT-RATE + 90 RadGenome).
+>
+> **Evidence Card v2 三个 patch**：(P1) strict laterality gate (SSR≥0.9, min 2 non-cross), (P2) depth gate (≥75% in-range), (P3) same-side token cleanup。
+> B2'v2 以不到 4% 的 NLG 代价换来 57% 的 violation 降幅（132→56），是当前最优配置。

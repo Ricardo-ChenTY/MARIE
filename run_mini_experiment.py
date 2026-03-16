@@ -316,6 +316,12 @@ def main() -> None:
         default=256,
         help="Max tokens for Stage 3c generation. Default 256.",
     )
+    parser.add_argument(
+        "--strict_laterality",
+        action="store_true",
+        default=False,
+        help="Evidence Card v2: stricter laterality gate (ssr>=0.9, min 2 non-cross) + depth gate + same-side token cleanup.",
+    )
     # Reroute config
     parser.add_argument(
         "--reroute_gamma",
@@ -480,6 +486,7 @@ def main() -> None:
             temperature=float(args.stage3c_temperature),
             max_tokens=int(args.stage3c_max_tokens),
             hf_torch_dtype=args.llm_judge_hf_torch_dtype,
+            strict_laterality=bool(args.strict_laterality),
         )
 
         # LLM sharing: if same model + huggingface backend, reuse the HF pipeline
@@ -497,6 +504,7 @@ def main() -> None:
                 model=_s3c_model,
                 temperature=_gen_cfg.temperature,
                 max_tokens=_gen_cfg.max_tokens,
+                strict_laterality=_gen_cfg.strict_laterality,
             )
             generator = Stage3cGenerator(_gen_cfg_tmp)
             generator.cfg = _gen_cfg  # restore real config
@@ -581,6 +589,7 @@ def main() -> None:
         "stage3c_backend": str(args.stage3c_backend) if args.stage3c_backend else None,
         "stage3c_model": str(args.stage3c_model) if args.stage3c_backend else None,
         "stage3c_temperature": float(args.stage3c_temperature) if args.stage3c_backend else None,
+        "strict_laterality": bool(args.strict_laterality),
         "reroute_gamma": float(cfg.reroute.gamma_penalty),
         "reroute_max_retry": int(cfg.reroute.max_retry),
     }

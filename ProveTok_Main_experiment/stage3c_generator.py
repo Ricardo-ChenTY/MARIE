@@ -105,6 +105,8 @@ class GeneratorConfig:
     include_bbox: bool = True
     # If True, include split_score and level in the prompt
     include_scores: bool = True
+    # Evidence Card v2: stricter laterality gate (require ssr >= 0.9, min 2 non-cross)
+    strict_laterality: bool = False
 
 
 _SYSTEM_PROMPT = (
@@ -116,11 +118,12 @@ _SYSTEM_PROMPT = (
     "Generate a single concise radiology report sentence that accurately describes "
     "the findings for the specified anatomy region. "
     "IMPORTANT CONSTRAINTS:\n"
-    "- Only mention laterality (left/right/bilateral) if the evidence summary "
-    "explicitly confirms it. If dominant_side is 'mixed' or 'unknown', do NOT "
-    "include any laterality terms.\n"
-    "- Only mention depth-related terms (upper/lower/apical/basal) if the "
-    "evidence tokens consistently support that depth range.\n"
+    "- Only mention laterality (left/right/bilateral) if laterality_allowed is "
+    "'left', 'right', or 'bilateral'. If laterality_allowed is 'none', do NOT "
+    "include ANY laterality terms (left, right, bilateral, etc.).\n"
+    "- Only mention depth-related terms (upper/lower/apical/basal/superior/inferior) "
+    "if depth_allowed is 'in_range' or 'unconstrained'. If depth_allowed is 'none', "
+    "do NOT include ANY depth-specific terms.\n"
     "Write in standard radiology report style. Do not add disclaimers."
 )
 
@@ -151,15 +154,17 @@ def _format_token_context(
     return "\n".join(lines)
 
 
-def _format_evidence_card(card: EvidenceCard) -> str:
+def _format_evidence_card(card: EvidenceCard, strict_laterality: bool = False) -> str:
     """Format evidence card as a structured text block for the LLM prompt."""
-    allowed = card.laterality_allowed()
+    lat_allowed = card.laterality_allowed(strict=strict_laterality)
+    dep_allowed = card.depth_allowed()
     lines = [
         "Evidence summary:",
         f"  cited_tokens: {card.cited_count}",
         f"  left_count: {card.left_count}, right_count: {card.right_count}, cross_count: {card.cross_count}",
         f"  dominant_side: {card.dominant_side} (same_side_ratio: {card.same_side_ratio:.3f})",
-        f"  laterality_allowed: {allowed}",
+        f"  laterality_allowed: {lat_allowed}",
+        f"  depth_allowed: {dep_allowed}",
         f"  level_histogram: {dict(sorted(card.level_histogram.items()))}",
     ]
     if card.level_range_expected is not None:
@@ -176,6 +181,7 @@ def _build_generation_prompt(
     include_scores: bool,
     history: Optional[List[str]] = None,
     evidence_card: Optional[EvidenceCard] = None,
+    strict_laterality: bool = False,
 ) -> str:
     ctx = _format_token_context(tokens, plan.anatomy_keyword, include_bbox, include_scores)
     negation_note = " (negated finding expected)" if plan.is_negated else ""
@@ -190,12 +196,12 @@ def _build_generation_prompt(
     parts.append(ctx)
     parts.append("")
     if evidence_card is not None:
-        parts.append(_format_evidence_card(evidence_card))
+        parts.append(_format_evidence_card(evidence_card, strict_laterality=strict_laterality))
         parts.append("")
     parts.append(
         "Write one concise radiology report sentence for this finding. "
         "Maintain consistency with previously generated sentences. "
-        "Respect the laterality_allowed constraint from the evidence summary."
+        "Respect the laterality_allowed and depth_allowed constraints from the evidence summary."
     )
     return "\n".join(parts)
 
@@ -358,6 +364,7 @@ class Stage3cGenerator:
             self.cfg.include_scores,
             history=history,
             evidence_card=evidence_card,
+            strict_laterality=self.cfg.strict_laterality,
         )
         try:
             text = self._call_llm(prompt).strip()

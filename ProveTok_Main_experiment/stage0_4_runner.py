@@ -98,6 +98,38 @@ def run_case_stage0_4(
             lateral_tolerance=cfg.verifier.lateral_tolerance,
             expected_level_range=plan.expected_level_range,
         )
+
+        # --- Patch 3: Same-side / in-range token cleanup ---
+        # If dominant side is clear, remove opposite-side tokens from cited set.
+        # If expected level range exists, remove out-of-range tokens.
+        # Then rebuild the evidence card with the cleaned set.
+        strict_lat = (comp.generator is not None and comp.generator.cfg.strict_laterality)
+        if strict_lat and ev_card.dominant_side in ("left", "right"):
+            target_side = ev_card.dominant_side
+            cleaned = [
+                tok for tok in cited_tokens
+                if _token_side(tok, x_mid, cfg.verifier.lateral_tolerance) in (target_side, "cross")
+            ]
+            if len(cleaned) >= 2:
+                cited_tokens = cleaned
+                topk_ids = [t.token_id for t in cited_tokens]
+                topk_scores = [float(scores.get(t.token_id, 0.0)) for t in cited_tokens]
+
+        if strict_lat and plan.expected_level_range is not None:
+            lo, hi = plan.expected_level_range
+            cleaned = [tok for tok in cited_tokens if lo <= tok.level <= hi]
+            if len(cleaned) >= 2:
+                cited_tokens = cleaned
+                topk_ids = [t.token_id for t in cited_tokens]
+                topk_scores = [float(scores.get(t.token_id, 0.0)) for t in cited_tokens]
+
+        # Rebuild evidence card after cleanup (if tokens changed)
+        ev_card = build_evidence_card(
+            cited_tokens,
+            x_mid=x_mid,
+            lateral_tolerance=cfg.verifier.lateral_tolerance,
+            expected_level_range=plan.expected_level_range,
+        )
         evidence_cards[plan.sentence_index] = ev_card
 
         # Stage 3c: LLM generation conditioned on routed tokens
@@ -138,7 +170,7 @@ def run_case_stage0_4(
                 "q_s": [float(x) for x in q_s],
                 "topk_token_ids": [int(x) for x in topk_ids],
                 "topk_scores": topk_scores,
-                "evidence_card": ev_card.to_prompt_dict(),
+                "evidence_card": ev_card.to_prompt_dict(strict_laterality=strict_lat),
             }
         )
 

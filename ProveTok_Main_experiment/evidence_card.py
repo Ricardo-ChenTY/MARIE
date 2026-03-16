@@ -33,7 +33,7 @@ class EvidenceCard:
     in_range_count: int = 0
     out_of_range_count: int = 0
 
-    def to_prompt_dict(self) -> Dict[str, object]:
+    def to_prompt_dict(self, strict_laterality: bool = False) -> Dict[str, object]:
         """Serialize to a dict suitable for inclusion in LLM prompts."""
         d: Dict[str, object] = {
             "cited_tokens": self.cited_count,
@@ -41,25 +41,73 @@ class EvidenceCard:
             "right_count": self.right_count,
             "dominant_side": self.dominant_side,
             "same_side_ratio": round(self.same_side_ratio, 3),
+            "laterality_allowed": self.laterality_allowed(strict=strict_laterality),
+            "depth_allowed": self.depth_allowed(),
             "level_histogram": {str(k): v for k, v in sorted(self.level_histogram.items())},
         }
         if self.level_range_expected is not None:
             d["level_range_expected"] = list(self.level_range_expected)
+            d["in_range_count"] = self.in_range_count
+            d["out_of_range_count"] = self.out_of_range_count
         return d
 
-    def laterality_allowed(self) -> str:
+    def laterality_allowed(self, strict: bool = False) -> str:
         """
         Return what laterality terms the generated text is allowed to use.
 
         - "left" or "right": evidence clearly supports one side
         - "bilateral": evidence clearly supports both sides
         - "none": evidence is mixed or insufficient; do NOT mention laterality
+
+        When strict=True (v2 gate), require same_side_ratio >= 0.9 AND
+        at least 2 non-cross tokens to allow a single-side claim.
+        Bilateral requires min(left, right) >= 2.
         """
+        if strict:
+            non_cross = self.left_count + self.right_count
+            # Need enough non-cross evidence to make any laterality claim
+            if non_cross < 2:
+                return "none"
+            if self.dominant_side in ("left", "right"):
+                # Stricter: require 90%+ purity for single-side claim
+                if self.same_side_ratio >= 0.9:
+                    return self.dominant_side
+                return "none"
+            if self.dominant_side == "bilateral":
+                # Require at least 2 tokens on each side
+                if self.left_count >= 2 and self.right_count >= 2:
+                    return "bilateral"
+                return "none"
+            return "none"
+
+        # --- Original (v1) logic ---
         if self.dominant_side in ("left", "right"):
             return self.dominant_side
         if self.dominant_side == "bilateral":
             return "bilateral"
         # mixed or unknown => do not mention laterality
+        return "none"
+
+    def depth_allowed(self) -> str:
+        """
+        Return what depth terms the generated text is allowed to use.
+
+        - "in_range": evidence tokens are mostly within expected level range;
+          depth terms (upper/lower/apical/basal) are permitted
+        - "none": evidence is out-of-range or no expected range defined;
+          do NOT mention depth-specific terms
+
+        Requires >= 75% of tokens to be in the expected level range.
+        """
+        if self.level_range_expected is None:
+            # No expected range → depth terms are unconstrained
+            return "unconstrained"
+        total = self.in_range_count + self.out_of_range_count
+        if total == 0:
+            return "none"
+        in_range_ratio = self.in_range_count / total
+        if in_range_ratio >= 0.75:
+            return "in_range"
         return "none"
 
 
