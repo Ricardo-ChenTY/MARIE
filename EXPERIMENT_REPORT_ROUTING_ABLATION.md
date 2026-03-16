@@ -342,7 +342,31 @@ C2' 的 Stage 5 使用通用的 log-smooth penalty + reroute + regenerate 流程
 6. **R6b 有所改善**：从结构性常量 17 降到 10–12，Evidence Card 让 LLM 生成更保守的文本。
 7. **总体改善**：从 A0 的 108 违规（7.5%）降到 B2' 的 53 违规（3.7%），**累计降低 50.9%**。
 
-### 8.5 剩余违规分布（B2' 最优配置）
+### 8.5 NLG 指标（BLEU / ROUGE-L / METEOR）
+
+仅 Stage 3c 生成条件有 NLG 指标（A0–E1 直接透传 gold topic text，BLEU/ROUGE 无意义）。
+
+| 条件 | S3c | EvCard | S5 | BLEU-1 | BLEU-2 | BLEU-3 | BLEU-4 | ROUGE-L | METEOR |
+|------|:---:|:------:|:--:|:------:|:------:|:------:|:------:|:-------:|:------:|
+| B2 | ON | — | — | 0.500 | 0.427 | 0.373 | 0.330 | 0.525 | 0.526 |
+| C2 | ON | — | ON | 0.490 | 0.415 | 0.360 | 0.317 | 0.515 | 0.516 |
+| **B2'** | ON | **ON** | — | **0.600** | **0.552** | **0.514** | **0.482** | **0.650** | **0.618** |
+| **C2'** | ON | **ON** | ON | **0.608** | **0.560** | **0.522** | **0.489** | **0.660** | **0.629** |
+| D2 | ON | ON | ON | 0.596 | 0.547 | 0.507 | 0.473 | 0.647 | 0.620 |
+
+> Reference = original topic sentence (from ground-truth report).
+> Metrics computed with NLTK (BLEU, METEOR) + rouge-score (ROUGE-L).
+
+**Finding：Evidence Card 同时提升 NLG 质量和空间一致性。**
+
+| 对比 | BLEU-4 | ROUGE-L | METEOR | ViolRate |
+|------|:------:|:-------:|:------:|:--------:|
+| B2 → B2' (+EvCard) | 0.330→0.482 (**+46%**) | 0.525→0.650 (**+24%**) | 0.526→0.618 (**+17%**) | 5.6%→3.7% (**−34%**) |
+| C2 → C2' (+EvCard) | 0.317→0.489 (**+54%**) | 0.515→0.660 (**+28%**) | 0.516→0.629 (**+22%**) | 5.7%→3.8% (**−33%**) |
+
+Evidence Card 约束了 LLM 不生成不恰当的空间描述词，使生成文本更贴近 ground truth 措辞。这不是 trade-off，而是 **win-win**：空间一致性提升的同时，文本质量也显著提升。
+
+### 8.6 剩余违规分布（B2' 最优配置）
 
 ```
 R1_LATERALITY:   23 / 53  (43.4%)
@@ -352,7 +376,7 @@ R6a_CROSS:        1 / 53  ( 1.9%)
 R2_ANATOMY:       0 / 53  ( 0.0%)
 ```
 
-### 8.6 最优配置（B2'）
+### 8.7 最优配置（B2'）
 
 ```
 路由:        E1 (spatial filter + semantic rerank, k=8)
@@ -436,3 +460,23 @@ has_right = bool(_RIGHT_RE.search(text))
 | 8 | 71 | 35 | 0 | 19 | 17 | 4.9% |
 | 12 | 99 | 47 | 0 | 35 | 17 | 6.9% |
 | 14 | 110 | 49 | 0 | 44 | 17 | 7.7% |
+
+---
+
+## 12. Paper-Ready 综合结果表
+
+> 用于论文 Table 6（主实验结果），包含空间一致性指标 + NLG 指标。
+
+| Condition | S3c | EvCard | S5 | Repair | ViolRate↓ | R1↓ | R3↓ | BLEU-4↑ | ROUGE-L↑ | METEOR↑ |
+|-----------|:---:|:------:|:--:|:------:|:---------:|:---:|:---:|:-------:|:--------:|:-------:|
+| A0 (baseline) | — | — | — | — | 7.5% | 0 | 91 | — | — | — |
+| A1 (+W_proj) | — | — | — | — | 6.8% | 0 | 80 | — | — | — |
+| E1 (+filter+rerank) | — | — | — | — | 4.9% | 35 | 19 | — | — | — |
+| B2 (+Stage 3c) | ON | — | — | — | 5.6% | 46 | 19 | 0.330 | 0.525 | 0.526 |
+| B2' (+EvCard) | ON | ON | — | — | **3.7%** | 23 | 19 | **0.482** | **0.650** | **0.618** |
+| C2' (+Stage 5) | ON | ON | ON | — | 3.8% | 22 | 19 | 0.489 | 0.660 | 0.629 |
+| D2 (+Repair) | ON | ON | ON | ON | 4.0% | 24 | 19 | 0.473 | 0.647 | 0.620 |
+
+> A0–E1 无 NLG 指标：text = gold topic passthrough（无 LLM 生成）。
+> NLG reference = ground-truth report sentence（original topic）。
+> 1437 sentences across 180 test cases (90 CT-RATE + 90 RadGenome).
