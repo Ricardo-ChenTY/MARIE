@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -6,9 +7,11 @@ from .math_utils import clamp
 from .types import BBox3D, EvidenceToken, RuleViolation, SentenceAudit, SentenceOutput, SentencePlan
 
 
-LEFT_WORDS = ("left", "lt", "左")
-RIGHT_WORDS = ("right", "rt", "右")
-BILATERAL_WORDS = ("bilateral", "both", "双侧")
+# Word-boundary patterns to avoid false positives from substrings
+# e.g. "aorta" contains "rt", "heart" contains "rt", "result" contains "lt"
+_LEFT_RE = re.compile(r"\b(?:left|lt)\b|左", re.IGNORECASE)
+_RIGHT_RE = re.compile(r"\b(?:right|rt)\b|右", re.IGNORECASE)
+_BILATERAL_RE = re.compile(r"\b(?:bilateral(?:ly)?|both)\b|双侧", re.IGNORECASE)
 NEGATION_WORDS = ("no ", "without", "not ", "未见", "无")
 POSITIVE_FINDING_WORDS = (
     "nodule",
@@ -29,10 +32,9 @@ POSITIVE_FINDING_WORDS = (
 
 
 def parse_laterality(text: str) -> Optional[str]:
-    t = text.lower()
-    has_left = any(w in t for w in LEFT_WORDS)
-    has_right = any(w in t for w in RIGHT_WORDS)
-    has_bi = any(w in t for w in BILATERAL_WORDS)
+    has_left = bool(_LEFT_RE.search(text))
+    has_right = bool(_RIGHT_RE.search(text))
+    has_bi = bool(_BILATERAL_RE.search(text))
     if has_bi or (has_left and has_right):
         return "bilateral"
     if has_left:
