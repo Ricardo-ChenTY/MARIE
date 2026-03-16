@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from .config import ProveTokConfig
+from .evidence_card import _token_side, build_evidence_card
 from .simple_modules import ReportSentencePlanner, RuleBasedAnatomyResolver
 from .stage0_scorer import DeterministicArtifactScorer
 from .stage1_swinunetr_encoder import FrozenSwinUNETREncoder
 from .stage2_octree_splitter import AdaptiveOctreeSplitter
 from .stage3_router import Router
-from .stage3c_generator import Stage3cGenerator, despecify_text
+from .stage3c_generator import Stage3cGenerator, despecify_text, drop_depth, drop_laterality
 from .stage4_verifier import Verifier
 from .stage5_llm_judge import LLMJudge
 from .token_bank_io import save_token_bank_case
@@ -73,6 +74,7 @@ def run_case_stage0_4(
     sentence_outputs: List[SentenceOutput] = []
     sentence_logs: List[Dict[str, object]] = []
     generated_history: List[str] = []  # accumulate for sentence history context
+    evidence_cards: Dict[int, object] = {}  # sentence_index -> EvidenceCard
     for plan in plans:
         q_s = comp.router.text_encoder(plan.topic)
         anatomy_bbox = comp.anatomy_resolver(plan.anatomy_keyword)
@@ -87,14 +89,25 @@ def run_case_stage0_4(
         topk_ids = sorted(scores.keys(), key=lambda tid: (-scores[tid], tid))[: cfg.router.k_per_sentence]
         topk_scores = [float(scores[tid]) for tid in topk_ids]
 
+        # Build evidence card for this sentence (used by Stage 3c and Stage 5)
+        cited_tokens = [token_map[tid] for tid in topk_ids if tid in token_map]
+        x_mid = float(volume.shape[2]) / 2.0
+        ev_card = build_evidence_card(
+            cited_tokens,
+            x_mid=x_mid,
+            lateral_tolerance=cfg.verifier.lateral_tolerance,
+            expected_level_range=plan.expected_level_range,
+        )
+        evidence_cards[plan.sentence_index] = ev_card
+
         # Stage 3c: LLM generation conditioned on routed tokens
         gen_text = plan.topic
         gen_flag = False
         gen_error: Optional[str] = None
         if comp.generator is not None:
-            cited_tokens = [token_map[tid] for tid in topk_ids if tid in token_map]
             gen_result = comp.generator.generate_sentence(
-                plan, cited_tokens, history=generated_history or None
+                plan, cited_tokens, history=generated_history or None,
+                evidence_card=ev_card,
             )
             gen_text = gen_result.generated_text
             gen_flag = gen_result.error is None
@@ -125,6 +138,7 @@ def run_case_stage0_4(
                 "q_s": [float(x) for x in q_s],
                 "topk_token_ids": [int(x) for x in topk_ids],
                 "topk_scores": topk_scores,
+                "evidence_card": ev_card.to_prompt_dict(),
             }
         )
 
@@ -147,67 +161,141 @@ def run_case_stage0_4(
     max_retry = cfg.reroute.max_retry
 
     if comp.llm_judge is not None:
-        judgements = comp.llm_judge.judge_all(sentence_outputs, audits)
+        judgements = comp.llm_judge.judge_all(sentence_outputs, audits, evidence_cards=evidence_cards)
         for idx, s_out in enumerate(sentence_outputs):
             j = judgements.get(s_out.sentence_index)
             if j is None or not j.any_confirmed():
                 continue
 
-            # Per-token log-smooth penalty: r'_i = r_i - γ·ln(1 + sev_i)
-            audit = next((a for a in audits if a.sentence_index == s_out.sentence_index), None)
-            penalized = comp.llm_judge.reroute_scores_log_smooth(
-                s_out.route_scores, j.verdicts, gamma,
-                violations=audit.violations if audit else None,
-            )
-            # Re-top-k: select new top-k from penalized scores
-            new_topk_ids = sorted(
-                penalized.keys(), key=lambda tid: (-penalized[tid], tid)
-            )[: cfg.router.k_per_sentence]
+            plan = plans[idx]
+            confirmed_verdicts = [v for v in j.verdicts if v.confirmed]
+            actions = {v.suggested_action for v in confirmed_verdicts if v.suggested_action}
 
-            s_out.route_scores = penalized
-            s_out.citations = new_topk_ids
-            s_out.rerouted = True
-            s_out.stop_reason = "log_smooth_reroute"
+            repaired = False
 
-            # Regenerate with new citations (if generator available and retry > 0)
-            if comp.generator is not None and max_retry > 0:
-                plan = plans[idx]
-                cited_tokens = [token_map[tid] for tid in new_topk_ids if tid in token_map]
-                # Build history from all other sentences (exclude current)
-                regen_history = [
-                    so.text for so in sentence_outputs if so.sentence_index != s_out.sentence_index
-                ] or None
-                gen_result = comp.generator.generate_sentence(plan, cited_tokens, history=regen_history)
-                s_out.text = gen_result.generated_text
-                s_out.generated = gen_result.error is None
-                s_out.generation_error = gen_result.error
+            # --- Action-dispatched repair ---
 
-                # Re-verify after reroute; if still failing → de-specify fallback
-                re_audit = comp.verifier.audit_all([s_out], [plan], tokens)
-                if re_audit and re_audit[0].violations:
-                    despec_topic = despecify_text(plan.topic)
-                    if despec_topic != plan.topic:
-                        despec_plan = type(plan)(
-                            sentence_index=plan.sentence_index,
-                            topic=despec_topic,
-                            anatomy_keyword=plan.anatomy_keyword,
-                            expected_level_range=plan.expected_level_range,
-                            expected_volume_range=plan.expected_volume_range,
-                            is_negated=plan.is_negated,
-                        )
-                        gen_result = comp.generator.generate_sentence(
-                            despec_plan, cited_tokens, history=regen_history,
-                        )
-                        s_out.text = gen_result.generated_text
-                        s_out.generated = gen_result.error is None
-                        s_out.generation_error = gen_result.error
-                        s_out.stop_reason = "de_specified"
+            # 1) drop_laterality: strip laterality words directly (no reroute needed)
+            if "drop_laterality" in actions and not repaired:
+                new_text = drop_laterality(s_out.text)
+                if new_text != s_out.text:
+                    s_out.text = new_text
+                    s_out.rerouted = True
+                    s_out.stop_reason = "drop_laterality"
+                    repaired = True
+
+            # 2) drop_depth: strip depth words directly
+            if "drop_depth" in actions and not repaired:
+                new_text = drop_depth(s_out.text)
+                if new_text != s_out.text:
+                    s_out.text = new_text
+                    s_out.rerouted = True
+                    s_out.stop_reason = "drop_depth"
+                    repaired = True
+
+            # 3) reroute_same_side: filter to dominant-side tokens, re-top-k, regenerate
+            if "reroute_same_side" in actions and not repaired:
+                ev_card = evidence_cards.get(s_out.sentence_index)
+                if ev_card is not None and ev_card.dominant_side in ("left", "right"):
+                    x_mid = float(volume.shape[2]) / 2.0
+                    side_tokens = [
+                        token_map[tid] for tid in s_out.route_scores
+                        if tid in token_map
+                        and _token_side(token_map[tid], x_mid, cfg.verifier.lateral_tolerance) == ev_card.dominant_side
+                    ]
+                    if side_tokens:
+                        side_ids = sorted(
+                            [t.token_id for t in side_tokens],
+                            key=lambda tid: (-s_out.route_scores.get(tid, 0.0), tid),
+                        )[: cfg.router.k_per_sentence]
+                        s_out.citations = side_ids
+                        s_out.rerouted = True
+                        s_out.stop_reason = "reroute_same_side"
+                        # Regenerate with same-side tokens
+                        if comp.generator is not None and max_retry > 0:
+                            regen_cited = [token_map[tid] for tid in side_ids if tid in token_map]
+                            regen_ev_card = build_evidence_card(
+                                regen_cited,
+                                x_mid=x_mid,
+                                lateral_tolerance=cfg.verifier.lateral_tolerance,
+                                expected_level_range=plan.expected_level_range,
+                            )
+                            regen_history = [
+                                so.text for so in sentence_outputs if so.sentence_index != s_out.sentence_index
+                            ] or None
+                            gen_result = comp.generator.generate_sentence(
+                                plan, regen_cited, history=regen_history,
+                                evidence_card=regen_ev_card,
+                            )
+                            s_out.text = gen_result.generated_text
+                            s_out.generated = gen_result.error is None
+                            s_out.generation_error = gen_result.error
+                        repaired = True
+
+            # 4) Fallback: generic log-smooth penalty + reroute + regenerate
+            if not repaired:
+                audit = next((a for a in audits if a.sentence_index == s_out.sentence_index), None)
+                penalized = comp.llm_judge.reroute_scores_log_smooth(
+                    s_out.route_scores, j.verdicts, gamma,
+                    violations=audit.violations if audit else None,
+                )
+                new_topk_ids = sorted(
+                    penalized.keys(), key=lambda tid: (-penalized[tid], tid)
+                )[: cfg.router.k_per_sentence]
+
+                s_out.route_scores = penalized
+                s_out.citations = new_topk_ids
+                s_out.rerouted = True
+                s_out.stop_reason = "log_smooth_reroute"
+
+                if comp.generator is not None and max_retry > 0:
+                    cited_tokens = [token_map[tid] for tid in new_topk_ids if tid in token_map]
+                    regen_ev_card = build_evidence_card(
+                        cited_tokens,
+                        x_mid=float(volume.shape[2]) / 2.0,
+                        lateral_tolerance=cfg.verifier.lateral_tolerance,
+                        expected_level_range=plan.expected_level_range,
+                    )
+                    regen_history = [
+                        so.text for so in sentence_outputs if so.sentence_index != s_out.sentence_index
+                    ] or None
+                    gen_result = comp.generator.generate_sentence(
+                        plan, cited_tokens, history=regen_history,
+                        evidence_card=regen_ev_card,
+                    )
+                    s_out.text = gen_result.generated_text
+                    s_out.generated = gen_result.error is None
+                    s_out.generation_error = gen_result.error
+
+                    # Re-verify; if still failing → de-specify fallback
+                    re_audit = comp.verifier.audit_all([s_out], [plan], tokens)
+                    if re_audit and re_audit[0].violations:
+                        despec_topic = despecify_text(plan.topic)
+                        if despec_topic != plan.topic:
+                            despec_plan = type(plan)(
+                                sentence_index=plan.sentence_index,
+                                topic=despec_topic,
+                                anatomy_keyword=plan.anatomy_keyword,
+                                expected_level_range=plan.expected_level_range,
+                                expected_volume_range=plan.expected_volume_range,
+                                is_negated=plan.is_negated,
+                            )
+                            gen_result = comp.generator.generate_sentence(
+                                despec_plan, cited_tokens, history=regen_history,
+                                evidence_card=regen_ev_card,
+                            )
+                            s_out.text = gen_result.generated_text
+                            s_out.generated = gen_result.error is None
+                            s_out.generation_error = gen_result.error
+                            s_out.stop_reason = "de_specified"
 
             stage5_judgements[s_out.sentence_index] = [
                 {
                     "rule_id": v.rule_id,
                     "confirmed": v.confirmed,
                     "adjusted_severity": v.adjusted_severity,
+                    "suggested_action": v.suggested_action,
+                    "offending_span": v.offending_span,
                     "reasoning": v.reasoning,
                 }
                 for v in j.verdicts

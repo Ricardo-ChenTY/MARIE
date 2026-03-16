@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
+from .evidence_card import EvidenceCard
 from .types import RuleViolation, SentenceAudit, SentenceOutput
 
 
@@ -15,6 +16,8 @@ class JudgeVerdict:
     confirmed: bool
     adjusted_severity: float
     reasoning: str
+    suggested_action: str = ""  # "drop_laterality" | "reroute_same_side" | "drop_depth" | "merge_conflict" | ""
+    offending_span: str = ""
 
 
 @dataclass
@@ -31,22 +34,45 @@ class SentenceJudgement:
 
 
 _SYSTEM_PROMPT = (
-    "You are a medical imaging expert reviewing CT radiology report consistency. "
-    "You will be given a sentence from a CT report and an automated rule violation. "
-    "Decide if the violation is genuine (true positive) or a false alarm. "
-    'Respond ONLY with valid JSON: {"confirmed": true/false, "severity": 0.0, "reasoning": "brief reason"}. '
-    "severity must be 0.0 if not confirmed, otherwise between 0.0 and 1.0. "
-    "Do not output anything else."
+    "You are an expert analytical judge system for CT radiology report consistency. "
+    "You will be given a sentence from a CT report, an automated rule violation, "
+    "and an evidence summary showing the spatial distribution of cited tokens. "
+    "Your task is to decide if the violation is genuine and suggest a repair action.\n\n"
+    "You MUST output strictly valid JSON matching this structure:\n"
+    '{"confirmed": true/false, "severity": 0.0, "suggested_action": "string", '
+    '"offending_span": "string or null", "reasoning": "brief reason"}\n\n'
+    "severity must be 0.0 if not confirmed, otherwise between 0.0 and 1.0.\n"
+    "suggested_action must be empty string if not confirmed, otherwise exactly ONE of:\n"
+    '  - "drop_laterality": remove laterality terms and rewrite without specifying side\n'
+    '  - "reroute_same_side": keep only dominant-side tokens and re-route\n'
+    '  - "drop_depth": remove depth/level terms (upper/lower/apical/basal) and rewrite\n'
+    '  - "merge_conflict": cross-sentence conflict, merge or de-duplicate assertions\n\n'
+    "offending_span is the exact substring from the sentence that causes the violation, "
+    "or null if not applicable.\n"
+    "Do not output anything other than the JSON object."
 )
 
 
-def _build_user_prompt(sentence_text: str, rule_id: str, message: str) -> str:
-    return (
-        f'Radiology report sentence: "{sentence_text}"\n'
-        f"Automated rule: {rule_id}\n"
-        f"Violation details: {message}\n\n"
-        "Is this a genuine violation? Reply with JSON only."
-    )
+def _build_user_prompt(
+    sentence_text: str,
+    rule_id: str,
+    message: str,
+    evidence_card: Optional[EvidenceCard] = None,
+) -> str:
+    parts = [
+        f'Radiology report sentence: "{sentence_text}"',
+        f"Automated rule: {rule_id}",
+        f"Violation details: {message}",
+    ]
+    if evidence_card is not None:
+        import json as _json
+        parts.append(f"Evidence summary: {_json.dumps(evidence_card.to_prompt_dict())}")
+    parts.append("")
+    parts.append("Is this a genuine violation? Reply with JSON only.")
+    return "\n".join(parts)
+
+
+_VALID_ACTIONS = {"drop_laterality", "reroute_same_side", "drop_depth", "merge_conflict"}
 
 
 def _parse_verdict(rule_id: str, raw: str, fallback_severity: float) -> JudgeVerdict:
@@ -59,11 +85,17 @@ def _parse_verdict(rule_id: str, raw: str, fallback_severity: float) -> JudgeVer
             severity = float(data.get("severity", fallback_severity if confirmed else 0.0))
             severity = max(0.0, min(1.0, severity))
             reasoning = str(data.get("reasoning", ""))
+            suggested_action = str(data.get("suggested_action", ""))
+            if suggested_action not in _VALID_ACTIONS:
+                suggested_action = ""
+            offending_span = data.get("offending_span") or ""
             return JudgeVerdict(
                 rule_id=rule_id,
                 confirmed=confirmed,
                 adjusted_severity=severity,
                 reasoning=reasoning,
+                suggested_action=suggested_action if confirmed else "",
+                offending_span=str(offending_span) if confirmed else "",
             )
     except Exception:
         pass
@@ -235,11 +267,12 @@ class LLMJudge:
         self,
         sentence_text: str,
         violations: Sequence[RuleViolation],
+        evidence_card: Optional[EvidenceCard] = None,
     ) -> List[JudgeVerdict]:
         """Ask the LLM to confirm or dismiss each violation for a single sentence."""
         verdicts: List[JudgeVerdict] = []
         for v in violations:
-            prompt = _build_user_prompt(sentence_text, v.rule_id, v.message)
+            prompt = _build_user_prompt(sentence_text, v.rule_id, v.message, evidence_card)
             try:
                 raw = self._call_llm(prompt)
                 verdicts.append(_parse_verdict(v.rule_id, raw, v.severity))
@@ -328,6 +361,7 @@ class LLMJudge:
         self,
         sentence_outputs: Sequence[SentenceOutput],
         audits: Sequence[SentenceAudit],
+        evidence_cards: Optional[Dict[int, EvidenceCard]] = None,
     ) -> Dict[int, SentenceJudgement]:
         """
         Run judge over all sentences with violations.
@@ -340,6 +374,7 @@ class LLMJudge:
             if audit.violations:
                 sentence = s_map.get(audit.sentence_index)
                 text = sentence.text if sentence else ""
-                judgement.verdicts = self.judge_violations(text, audit.violations)
+                card = evidence_cards.get(audit.sentence_index) if evidence_cards else None
+                judgement.verdicts = self.judge_violations(text, audit.violations, evidence_card=card)
             results[audit.sentence_index] = judgement
         return results

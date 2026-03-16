@@ -27,6 +27,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
+from .evidence_card import EvidenceCard
 from .types import EvidenceToken, SentencePlan
 
 
@@ -56,6 +57,35 @@ def despecify_text(text: str) -> str:
     return result
 
 
+# ── Targeted repair functions (used by Stage 5 repair executor) ──
+
+_LATERALITY_WORDS = [
+    r"\bright\b", r"\bleft\b", r"\bbilateral(ly)?\b",
+    r"\bright-sided\b", r"\bleft-sided\b",
+    r"\bunilateral(ly)?\b",
+]
+_LATERALITY_RE = re.compile("|".join(_LATERALITY_WORDS), re.IGNORECASE)
+
+_DEPTH_WORDS = [
+    r"\bupper\b", r"\blower\b", r"\bmiddle\b",
+    r"\bapical\b", r"\bbasal\b",
+    r"\bsuperior\b", r"\binferior\b",
+]
+_DEPTH_RE = re.compile("|".join(_DEPTH_WORDS), re.IGNORECASE)
+
+
+def drop_laterality(text: str) -> str:
+    """Remove laterality terms from text (targeted repair for R1 violations)."""
+    result = _LATERALITY_RE.sub("", text)
+    return re.sub(r"  +", " ", result).strip()
+
+
+def drop_depth(text: str) -> str:
+    """Remove depth/level terms from text (targeted repair for R3 violations)."""
+    result = _DEPTH_RE.sub("", text)
+    return re.sub(r"  +", " ", result).strip()
+
+
 @dataclass
 class GeneratorConfig:
     # Backend: "ollama" | "openai" | "anthropic" | "huggingface"
@@ -81,8 +111,16 @@ _SYSTEM_PROMPT = (
     "You are an expert radiologist writing a CT report. "
     "You will be given evidence tokens extracted from a CT scan — each token "
     "describes a spatial region with its anatomical location and image features. "
+    "You will also receive an evidence summary that tells you what spatial "
+    "attributes (laterality, depth) are supported by the evidence. "
     "Generate a single concise radiology report sentence that accurately describes "
     "the findings for the specified anatomy region. "
+    "IMPORTANT CONSTRAINTS:\n"
+    "- Only mention laterality (left/right/bilateral) if the evidence summary "
+    "explicitly confirms it. If dominant_side is 'mixed' or 'unknown', do NOT "
+    "include any laterality terms.\n"
+    "- Only mention depth-related terms (upper/lower/apical/basal) if the "
+    "evidence tokens consistently support that depth range.\n"
     "Write in standard radiology report style. Do not add disclaimers."
 )
 
@@ -113,12 +151,31 @@ def _format_token_context(
     return "\n".join(lines)
 
 
+def _format_evidence_card(card: EvidenceCard) -> str:
+    """Format evidence card as a structured text block for the LLM prompt."""
+    allowed = card.laterality_allowed()
+    lines = [
+        "Evidence summary:",
+        f"  cited_tokens: {card.cited_count}",
+        f"  left_count: {card.left_count}, right_count: {card.right_count}, cross_count: {card.cross_count}",
+        f"  dominant_side: {card.dominant_side} (same_side_ratio: {card.same_side_ratio:.3f})",
+        f"  laterality_allowed: {allowed}",
+        f"  level_histogram: {dict(sorted(card.level_histogram.items()))}",
+    ]
+    if card.level_range_expected is not None:
+        lo, hi = card.level_range_expected
+        lines.append(f"  level_range_expected: [{lo}, {hi}]")
+        lines.append(f"  in_range: {card.in_range_count}, out_of_range: {card.out_of_range_count}")
+    return "\n".join(lines)
+
+
 def _build_generation_prompt(
     plan: SentencePlan,
     tokens: Sequence[EvidenceToken],
     include_bbox: bool,
     include_scores: bool,
     history: Optional[List[str]] = None,
+    evidence_card: Optional[EvidenceCard] = None,
 ) -> str:
     ctx = _format_token_context(tokens, plan.anatomy_keyword, include_bbox, include_scores)
     negation_note = " (negated finding expected)" if plan.is_negated else ""
@@ -132,9 +189,13 @@ def _build_generation_prompt(
     parts.append("")
     parts.append(ctx)
     parts.append("")
+    if evidence_card is not None:
+        parts.append(_format_evidence_card(evidence_card))
+        parts.append("")
     parts.append(
         "Write one concise radiology report sentence for this finding. "
-        "Maintain consistency with previously generated sentences."
+        "Maintain consistency with previously generated sentences. "
+        "Respect the laterality_allowed constraint from the evidence summary."
     )
     return "\n".join(parts)
 
@@ -287,6 +348,7 @@ class Stage3cGenerator:
         plan: SentencePlan,
         cited_tokens: Sequence[EvidenceToken],
         history: Optional[List[str]] = None,
+        evidence_card: Optional[EvidenceCard] = None,
     ) -> GeneratedSentence:
         """Generate one report sentence conditioned on cited tokens and history."""
         prompt = _build_generation_prompt(
@@ -295,6 +357,7 @@ class Stage3cGenerator:
             self.cfg.include_bbox,
             self.cfg.include_scores,
             history=history,
+            evidence_card=evidence_card,
         )
         try:
             text = self._call_llm(prompt).strip()
