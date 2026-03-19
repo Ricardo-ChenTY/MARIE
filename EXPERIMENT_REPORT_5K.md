@@ -189,10 +189,62 @@ outputs/stage0_5_5k/
 
 ---
 
-## 8. Conclusion
+## 8. W_proj Ablation: Trained W_proj + E1 Routing
+
+### 8.1 实验设置
+
+在 train split (4000 cases, 31,919 sentence pairs) 上训练 W_proj 投影矩阵 (InfoNCE loss)，valid split (500 cases) 做 early stopping，然后在 test split (500 cases) 上评估。
+
+| Parameter | Value |
+|-----------|-------|
+| W_proj 训练数据 | 4000 cases (31,919 pairs) |
+| Loss | InfoNCE (tau=0.07) |
+| Epochs | 50 (no early stop triggered) |
+| Batch size | 64 |
+| LR | 1e-3 (CosineAnnealing) |
+| Best val loss | 2.496 |
+| Routing | `spatial_filter_semantic_rerank` (E1: IoU filter → W_proj cosine rerank) |
+
+### 8.2 Test Split 对比
+
+| Metric | B2'v2 (identity + spatial) | Trained W_proj + E1 | 变化 |
+|--------|---------------------------|---------------------|------|
+| **Violation Rate** | **4.05%** | 4.32% | +0.27% ↑ |
+| R1_LATERALITY | **2** | 105 | +103 ↑ |
+| R3_DEPTH | 113 | **23** | **-90 ↓** |
+| R6b_CROSS_PRES | 46 | **44** | -2 |
+| Total violations | **161** | 172 | +11 ↑ |
+| BLEU-4 | **0.487** | 0.477 | -1.0% |
+| ROUGE-L | **0.653** | 0.647 | -0.6% |
+| METEOR | **0.632** | 0.623 | -0.9% |
+
+### 8.3 Per-Dataset Breakdown
+
+| Config | Dataset | Viol. Rate | R1 | R3 | R6b | BLEU-4 | ROUGE-L |
+|--------|---------|------------|-----|-----|------|--------|---------|
+| B2'v2 identity | CT-RATE | 4.45% | 2 | 64 | 22 | 0.467 | 0.626 |
+| B2'v2 identity | RadGenome | 3.65% | 0 | 49 | 24 | 0.506 | 0.680 |
+| Trained W_proj E1 | CT-RATE | 4.70% | 65 | 9 | 19 | 0.454 | 0.621 |
+| Trained W_proj E1 | RadGenome | 3.95% | 40 | 14 | 25 | 0.500 | 0.672 |
+
+### 8.4 分析
+
+- **R3_DEPTH 大幅下降** (113→23, -80%): W_proj 语义 rerank 有效帮助选择了深度层级更匹配的 token，证明 learned projection 在 depth matching 上有明确价值
+- **R1_LATERALITY 暴增** (2→105): E1 routing 的语义 rerank 步骤破坏了纯空间路由的侧别一致性。W_proj 优化的是语义相关性（InfoNCE），而非空间一致性，导致 rerank 后的 token 可能跨越中线
+- **总违规率上升** (4.05%→4.32%): R3 的改善不足以弥补 R1 的恶化
+- **NLG 略降**: BLEU-4 -1.0%, ROUGE-L -0.6%，差异不大
+
+### 8.5 结论
+
+**B2'v2 (identity W_proj + spatial routing) 仍为最优配置。** Trained W_proj 在深度匹配 (R3) 上有明确改善，但引入了严重的侧别违规 (R1)。未来优化方向：在 InfoNCE 训练中加入侧别约束项，或在 E1 rerank 阶段增加 laterality-aware filtering。
+
+---
+
+## 9. Conclusion
 
 1. **规模验证通过**: Pipeline 在 5000 cases (39,893 sentences) 上保持了与 900-case 实验一致的违规率 (~3.9%) 和 NLG 质量
 2. **泛化性强**: Train/Valid/Test split 之间指标高度一致 (σ < 0.01)，无过拟合或数据偏差迹象
 3. **残余违规分析**: R3_DEPTH (69.5%) 和 R6b_CROSS_PRESENCE (27.2%) 是主要残余来源，R1_LATERALITY 已被 Evidence Card v2 压至接近 0
 4. **NLG 质量**: BLEU-4 ≈ 0.49, ROUGE-L ≈ 0.65, METEOR ≈ 0.63，在 CT 报告生成任务中属于较高水平
-5. **下一步**: 可利用 train split (4000 cases) 训练 W_proj 投影矩阵，在 valid (500 cases) 上调参，最终在 test (500 cases) 上评估
+5. **W_proj 消融**: Trained W_proj + E1 routing 大幅降低 R3 (-80%) 但 R1 暴增 (+103)，总违规率略升。B2'v2 仍为最优
+6. **下一步**: 探索 laterality-aware InfoNCE 训练，在语义 rerank 中保持侧别一致性
