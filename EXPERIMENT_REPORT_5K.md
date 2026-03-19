@@ -60,9 +60,41 @@
 
 ---
 
-## 3. Results Overview
+## 3. Evaluation Methodology
 
-### 3.1 Per-Split Summary
+本实验采用**两层评估体系**，分别衡量 3D 空间引用质量和文本生成质量：
+
+### Layer 1: Spatial Consistency (违规率)
+
+ProveTok pipeline 将报告的每句话**路由**到 CT volume 中的 k 个 3D token（octree 节点），形成 sentence→token citation。**Verifier (Stage 4)** 自动检查每条 citation 是否与报告文本在空间上一致：
+
+| Rule | 检查内容 | 示例 |
+|------|---------|------|
+| R1_LATERALITY | 报告声明的侧别（left/right）与 cited token 的空间位置是否一致 | 报告说 "left pleural effusion"，cited token 是否在左侧？ |
+| R2_ANATOMY | Cited token 的 bounding box 与目标解剖区域的 IoU 是否足够 | "liver" 对应的 token 是否覆盖肝脏区域？ |
+| R3_DEPTH | Cited token 在 octree 中的深度层级是否与描述的细粒度匹配 | 描述细节特征时，token 应在较深层级 |
+| R6a_CROSS_LAT | 跨句引用同一 token 时，侧别声明是否冲突 | 句 A 说 "left"，句 B 引用同一 token 说 "right"？ |
+| R6b_CROSS_PRES | 跨句引用同一 token 时，存在性声明是否冲突 | 句 A 说 "有积液"，句 B 引用同一 token 说 "无积液"？ |
+
+**违规率 = 违规句数 / 总句数**。违规率越低，说明 token citation 的空间准确性越高。
+
+### Layer 2: NLG Metrics (文本生成质量)
+
+Stage 3c 使用 LLM (Llama-3.1-8B) 基于 token 的 Evidence Card 生成报告句子。NLG 指标衡量**生成句子与原始报告句子的文本相似度**：
+
+| Metric | 说明 |
+|--------|------|
+| BLEU-4 | 4-gram 精度，衡量生成文本与参考文本的 n-gram 重叠 |
+| ROUGE-L | 最长公共子序列，衡量生成文本与参考文本的召回 |
+| METEOR | 综合考虑同义词和词形变化的匹配 |
+
+**注意**：这两层指标衡量不同维度。违规率低说明 3D 引用准确（"指对了地方"），NLG 高说明生成文本忠实（"说对了话"）。理想的 pipeline 应同时优化两者。
+
+---
+
+## 4. Results Overview
+
+### 4.1 Per-Split Summary
 
 | Split | Cases | Sentences | Violations | Viol. Rate | BLEU-4 | ROUGE-L | METEOR |
 |-------|-------|-----------|------------|------------|--------|---------|--------|
@@ -73,7 +105,7 @@
 
 **Key observation**: 三个 split 的违规率非常一致 (3.86% ~ 4.05%)，NLG 指标也高度稳定，说明 pipeline 泛化性良好。
 
-### 3.2 Per-Rule Violation Breakdown
+### 4.2 Per-Rule Violation Breakdown
 
 | Rule | Train | Valid | Test | Total | Description |
 |------|-------|-------|------|-------|-------------|
@@ -91,7 +123,7 @@
 - R1_LATERALITY 占 3.2% — Evidence Card v2 已大幅压低
 - R6a + R2 约 0.1%
 
-### 3.3 Per-Dataset Breakdown (Test Split)
+### 4.3 Per-Dataset Breakdown (Test Split)
 
 | Dataset | Sentences | Violations | Viol. Rate | R1 | R3 | R6b | BLEU-4 | ROUGE-L | METEOR |
 |---------|-----------|------------|------------|-----|-----|------|--------|---------|--------|
@@ -100,7 +132,7 @@
 
 RadGenome 在所有指标上均优于 CT-RATE：违规率更低 (3.65% vs 4.45%)，NLG 更高 (BLEU-4 0.506 vs 0.467)。这与 RadGenome 报告本身更规范、结构化更好一致。
 
-### 3.4 Repair Statistics
+### 4.4 Repair Statistics
 
 | Split | Judge Confirmed | Rerouted | Despecified |
 |-------|----------------|----------|-------------|
@@ -114,7 +146,7 @@ RadGenome 在所有指标上均优于 CT-RATE：违规率更低 (3.65% vs 4.45%)
 
 ---
 
-## 4. Comparison: 900-case vs 5000-case
+## 5. Comparison: 900-case vs 5000-case
 
 | Metric | 900-case B2'v2 | 5000-case (test) | 5000-case (all) |
 |--------|---------------|-------------------|------------------|
@@ -137,7 +169,7 @@ RadGenome 在所有指标上均优于 CT-RATE：违规率更低 (3.65% vs 4.45%)
 
 ---
 
-## 5. Split 一致性分析
+## 6. Split 一致性分析
 
 | Metric | Train | Valid | Test | Std |
 |--------|-------|-------|------|-----|
@@ -150,7 +182,7 @@ RadGenome 在所有指标上均优于 CT-RATE：违规率更低 (3.65% vs 4.45%)
 
 ---
 
-## 6. 运行统计
+## 7. 运行统计
 
 | Item | Value |
 |------|-------|
@@ -162,7 +194,7 @@ RadGenome 在所有指标上均优于 CT-RATE：违规率更低 (3.65% vs 4.45%)
 
 ---
 
-## 7. 目录结构
+## 8. 目录结构
 
 ```
 outputs/stage0_5_5k/
@@ -189,9 +221,9 @@ outputs/stage0_5_5k/
 
 ---
 
-## 8. W_proj Ablation: Trained W_proj + E1 Routing
+## 9. W_proj Ablation: Trained W_proj + E1 Routing
 
-### 8.1 实验设置
+### 9.1 实验设置
 
 在 train split (4000 cases, 31,919 sentence pairs) 上训练 W_proj 投影矩阵 (InfoNCE loss)，valid split (500 cases) 做 early stopping，然后在 test split (500 cases) 上评估。
 
@@ -205,7 +237,7 @@ outputs/stage0_5_5k/
 | Best val loss | 2.496 |
 | Routing | `spatial_filter_semantic_rerank` (E1: IoU filter → W_proj cosine rerank) |
 
-### 8.2 Test Split 对比
+### 9.2 Test Split 对比
 
 | Metric | B2'v2 (identity + spatial) | Trained W_proj + E1 | 变化 |
 |--------|---------------------------|---------------------|------|
@@ -218,7 +250,7 @@ outputs/stage0_5_5k/
 | ROUGE-L | **0.653** | 0.647 | -0.6% |
 | METEOR | **0.632** | 0.623 | -0.9% |
 
-### 8.3 Per-Dataset Breakdown
+### 9.3 Per-Dataset Breakdown
 
 | Config | Dataset | Viol. Rate | R1 | R3 | R6b | BLEU-4 | ROUGE-L |
 |--------|---------|------------|-----|-----|------|--------|---------|
@@ -227,20 +259,20 @@ outputs/stage0_5_5k/
 | Trained W_proj E1 | CT-RATE | 4.70% | 65 | 9 | 19 | 0.454 | 0.621 |
 | Trained W_proj E1 | RadGenome | 3.95% | 40 | 14 | 25 | 0.500 | 0.672 |
 
-### 8.4 分析
+### 9.4 分析
 
 - **R3_DEPTH 大幅下降** (113→23, -80%): W_proj 语义 rerank 有效帮助选择了深度层级更匹配的 token，证明 learned projection 在 depth matching 上有明确价值
 - **R1_LATERALITY 暴增** (2→105): E1 routing 的语义 rerank 步骤破坏了纯空间路由的侧别一致性。W_proj 优化的是语义相关性（InfoNCE），而非空间一致性，导致 rerank 后的 token 可能跨越中线
 - **总违规率上升** (4.05%→4.32%): R3 的改善不足以弥补 R1 的恶化
 - **NLG 略降**: BLEU-4 -1.0%, ROUGE-L -0.6%，差异不大
 
-### 8.5 结论
+### 9.5 结论
 
 **B2'v2 (identity W_proj + spatial routing) 仍为最优配置。** Trained W_proj 在深度匹配 (R3) 上有明确改善，但引入了严重的侧别违规 (R1)。未来优化方向：在 InfoNCE 训练中加入侧别约束项，或在 E1 rerank 阶段增加 laterality-aware filtering。
 
 ---
 
-## 9. Conclusion
+## 10. Conclusion
 
 1. **规模验证通过**: Pipeline 在 5000 cases (39,893 sentences) 上保持了与 900-case 实验一致的违规率 (~3.9%) 和 NLG 质量
 2. **泛化性强**: Train/Valid/Test split 之间指标高度一致 (σ < 0.01)，无过拟合或数据偏差迹象
