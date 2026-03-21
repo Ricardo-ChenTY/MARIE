@@ -8,10 +8,12 @@ Fig 2:   Budget sweep (k vs faithfulness)
 Fig 3:   Counterfactual sensitivity analysis
 
 Usage:
-    python Scripts/generate_table2_and_figures.py
+    python Scripts/generate_table2_and_figures.py                            # 180-case (default)
+    python Scripts/generate_table2_and_figures.py --data_dir outputs/5k_ablation  # 5K
 """
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
@@ -30,38 +32,70 @@ import numpy as np
 
 # ── Paths ──
 ROOT = Path(__file__).resolve().parent.parent
-ABLATION_DIR = ROOT / "outputs" / "ablation_routing_2x2"
 K_SWEEP_DIR = ROOT / "outputs" / "ablation_k_sweep"
 FIVE_K_DIR = ROOT / "outputs" / "stage0_5_5k"
-OUT_DIR = ROOT / "outputs" / "paper_figures"
+
+# These are set in main() based on --data_dir
+ABLATION_DIR: Path = ROOT / "outputs" / "ablation_routing_2x2"
+OUT_DIR: Path = ROOT / "outputs" / "paper_figures"
 
 
 # ── Ablation chain definition ──
-# Maps display name → directory name under ABLATION_DIR
-ABLATION_CHAIN = [
-    ("A0", "A0_identity_spatial",       "Identity $W$ + Spatial"),
-    ("A1", "A1_trained_spatial",        "Trained $W$ + Spatial"),
-    ("E1", "E1_trained_filter_rerank",  "Spatial filter + Semantic rerank"),
-    ("B2", "B2_E1_stage3c",            "+ LLM generation"),
-    ("B2'",  "B2_evcard",              "+ Evidence Card v1"),
-    ("B2'v2","B2_evcard_v2",           "+ Evidence Card v2"),
-    ("C2'",  "C2_evcard",             "+ LLM Judge (Stage 5)"),
-    ("D2",   "D2_repair",             "+ Repair executor"),
+# (label, description) — directory names are resolved per data source
+ABLATION_CHAIN_LABELS = [
+    ("A0",    "Identity $W$ + Spatial"),
+    ("A1",    "Trained $W$ + Spatial"),
+    ("E1",    "Spatial filter + Semantic rerank"),
+    ("B2",    "+ LLM generation"),
+    ("B2'",   "+ Evidence Card v1"),
+    ("B2'v2", "+ Evidence Card v2"),
+    ("C2'",   "+ LLM Judge (Stage 5)"),
+    ("D2",    "+ Repair executor"),
 ]
+
+# Directory name mappings per data source
+_DIRNAME_180 = {
+    "A0": "A0_identity_spatial",
+    "A1": "A1_trained_spatial",
+    "E1": "E1_trained_filter_rerank",
+    "B2": "B2_E1_stage3c",
+    "B2'": "B2_evcard",
+    "B2'v2": "B2_evcard_v2",
+    "C2'": "C2_evcard",
+    "D2": "D2_repair",
+}
+
+_DIRNAME_5K = {
+    "A0": "A0_identity_spatial",
+    "A1": "A1_trained_spatial",
+    "E1": "E1_spatial_filter_rerank",
+    "B2'": "B2_evcard_v1",
+    "B2'v2": "B2_evcard_v2",
+    "C2'": "C2_evcard_v1_judge",
+    "D2": "D2_repair",
+}
+
+# Active chain — set in main()
+ABLATION_CHAIN: List[Tuple[str, str, str]] = []
 
 K_SWEEP_ORDER = [1, 2, 4, 6, 8, 12, 14]
 
 
 # ── Data loading ──
 
-def load_traces(condition_dir: str) -> List[Dict[str, Any]]:
-    """Load all trace.jsonl sentence records from a condition directory."""
+def load_traces(condition_dir: str, load_tokens: bool = False) -> List[Dict[str, Any]]:
+    """Load all trace.jsonl sentence records from a condition directory.
+
+    If load_tokens=True, also loads tokens.json per case and attaches
+    a _tokens_by_id dict to each sentence for grounding metric computation.
+    """
     cases_dir = Path(condition_dir) / "cases"
     if not cases_dir.exists():
         return []
     all_sentences: List[Dict[str, Any]] = []
     for trace_path in sorted(cases_dir.rglob("trace.jsonl")):
         case_meta = None
+        case_sentences: List[Dict[str, Any]] = []
         with open(trace_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -72,7 +106,20 @@ def load_traces(condition_dir: str) -> List[Dict[str, Any]]:
                     case_meta = d
                 elif d.get("type") == "sentence":
                     d["_case_id"] = case_meta.get("case_id", "") if case_meta else ""
-                    all_sentences.append(d)
+                    case_sentences.append(d)
+
+        # Optionally load tokens.json for IoU computation
+        if load_tokens and case_sentences:
+            tokens_path = trace_path.parent / "tokens.json"
+            tokens_by_id = {}
+            if tokens_path.exists():
+                with open(tokens_path, encoding="utf-8") as tf:
+                    for tok in json.load(tf):
+                        tokens_by_id[tok["token_id"]] = tok
+            for s in case_sentences:
+                s["_tokens_by_id"] = tokens_by_id
+
+        all_sentences.extend(case_sentences)
     return all_sentences
 
 
@@ -140,34 +187,176 @@ def compute_compute_metrics(sentences: List[Dict], run_meta: Optional[Dict]) -> 
     }
 
 
+def _bbox3d_overlap_ratio(token_bbox: Dict, anatomy_bbox: Dict) -> float:
+    """Compute overlap ratio = intersection_volume / token_volume.
+
+    This measures what fraction of the token falls inside the anatomy region.
+    Unlike IoU, this is robust to large size differences between anatomy bbox
+    (e.g. entire right lung) and small token bboxes (e.g. 32³ voxels).
+    """
+    ix = max(0, min(token_bbox["x_max"], anatomy_bbox["x_max"]) -
+             max(token_bbox["x_min"], anatomy_bbox["x_min"]))
+    iy = max(0, min(token_bbox["y_max"], anatomy_bbox["y_max"]) -
+             max(token_bbox["y_min"], anatomy_bbox["y_min"]))
+    iz = max(0, min(token_bbox["z_max"], anatomy_bbox["z_max"]) -
+             max(token_bbox["z_min"], anatomy_bbox["z_min"]))
+    inter = ix * iy * iz
+    if inter <= 0:
+        return 0.0
+    token_vol = ((token_bbox["x_max"] - token_bbox["x_min"]) *
+                 (token_bbox["y_max"] - token_bbox["y_min"]) *
+                 (token_bbox["z_max"] - token_bbox["z_min"]))
+    return inter / token_vol if token_vol > 0 else 0.0
+
+
+# ── Citation Faithfulness helpers ──
+
+_LEFT_RE = re.compile(r"\b(?:left|lt)\b", re.IGNORECASE)
+_RIGHT_RE = re.compile(r"\b(?:right|rt)\b", re.IGNORECASE)
+_BILATERAL_RE = re.compile(r"\b(?:bilateral(?:ly)?|both)\b", re.IGNORECASE)
+_NEGATION_RE = re.compile(r"\b(?:no|not|without|absent|unremarkable|normal|clear|negative)\b", re.IGNORECASE)
+
+
+def _parse_text_laterality(text: str) -> Optional[str]:
+    """Parse laterality claim from generated text."""
+    has_left = bool(_LEFT_RE.search(text))
+    has_right = bool(_RIGHT_RE.search(text))
+    has_bi = bool(_BILATERAL_RE.search(text))
+    if has_bi or (has_left and has_right):
+        return "bilateral"
+    if has_left:
+        return "left"
+    if has_right:
+        return "right"
+    return None
+
+
+def _token_side(tok_bbox: Dict) -> str:
+    """Determine which side a token is on based on x-coordinate center.
+    In our volume: right lung = x < 0.5 (voxel < 64), left lung = x >= 0.5."""
+    center_x = (tok_bbox["x_min"] + tok_bbox["x_max"]) / 2.0
+    midpoint = _VOL_SHAPE / 2.0  # 64 for 128³
+    return "right" if center_x < midpoint else "left"
+
+
+def _tokens_dominant_side(token_bboxes: List[Dict]) -> Optional[str]:
+    """Determine dominant side of a set of token bboxes."""
+    if not token_bboxes:
+        return None
+    left_count = sum(1 for b in token_bboxes if _token_side(b) == "left")
+    right_count = len(token_bboxes) - left_count
+    if left_count == right_count:
+        return "bilateral"
+    return "left" if left_count > right_count else "right"
+
+
+def _laterality_matches(text_lat: str, token_lat: str) -> bool:
+    """Check if text laterality claim matches token laterality."""
+    if text_lat == token_lat:
+        return True
+    # bilateral text is compatible with any token side
+    if text_lat == "bilateral":
+        return True
+    return False
+
+
+# Normalized anatomy boxes (same as ProveTok_Main_experiment/simple_modules.py)
+_ANATOMY_BOXES_NORM = {
+    "right lung":       {"x_min": 0.0, "x_max": 0.5, "y_min": 0.0, "y_max": 1.0, "z_min": 0.0, "z_max": 1.0},
+    "left lung":        {"x_min": 0.5, "x_max": 1.0, "y_min": 0.0, "y_max": 1.0, "z_min": 0.0, "z_max": 1.0},
+    "right upper lobe": {"x_min": 0.0, "x_max": 0.5, "y_min": 0.5, "y_max": 1.0, "z_min": 0.0, "z_max": 1.0},
+    "right lower lobe": {"x_min": 0.0, "x_max": 0.5, "y_min": 0.0, "y_max": 0.5, "z_min": 0.0, "z_max": 1.0},
+    "left upper lobe":  {"x_min": 0.5, "x_max": 1.0, "y_min": 0.5, "y_max": 1.0, "z_min": 0.0, "z_max": 1.0},
+    "left lower lobe":  {"x_min": 0.5, "x_max": 1.0, "y_min": 0.0, "y_max": 0.5, "z_min": 0.0, "z_max": 1.0},
+    "mediastinum":      {"x_min": 0.3, "x_max": 0.7, "y_min": 0.15, "y_max": 0.85, "z_min": 0.0, "z_max": 1.0},
+    "bilateral":        {"x_min": 0.0, "x_max": 1.0, "y_min": 0.0, "y_max": 1.0, "z_min": 0.0, "z_max": 1.0},
+}
+
+_VOL_SHAPE = 128  # all volumes are 128³ in our dataset
+
+
+def _resolve_anatomy_bbox(keyword: str) -> Optional[Dict]:
+    """Resolve anatomy keyword to voxel-space bbox dict."""
+    key = keyword.lower().strip()
+    norm = _ANATOMY_BOXES_NORM.get(key)
+    if norm is None:
+        return None
+    s = _VOL_SHAPE
+    return {
+        "x_min": norm["x_min"] * s, "x_max": norm["x_max"] * s,
+        "y_min": norm["y_min"] * s, "y_max": norm["y_max"] * s,
+        "z_min": norm["z_min"] * s, "z_max": norm["z_max"] * s,
+    }
+
+
 def compute_grounding_metrics(sentences: List[Dict], condition_dir: str) -> Dict[str, Any]:
     """
-    Compute grounding metrics from trace data:
-    - mean_IoU: average IoU between cited tokens and anatomy bbox
-    - hit_at_k: fraction of sentences where at least one cited token overlaps anatomy
-    - coverage: fraction of sentences with >50% IoU support
+    Compute grounding metrics from trace + token data:
+    - mean_iou: average max-IoU between cited tokens and anatomy bbox
+    - hit_at_1/4/8: fraction of grounding-eligible sentences where top-1/4/8 has IoU > tau
+    - routing_precision: fraction of cited tokens with IoU ≥ tau
+    - lat_accuracy: laterality correctness (from evidence card vs R1 violations)
+    - viol_free_rate: fraction of sentences with zero violations
     """
-    # These are already computed by the verifier as R2 violations.
-    # We re-derive from violation data:
-    # - If R2 is NOT violated → tokens have sufficient IoU support
-    # - R2 count gives us the failure cases
-
     n = len(sentences)
     if n == 0:
         return {}
 
-    # Count sentences that have anatomy_keyword (eligible for grounding eval)
-    n_with_anatomy = sum(1 for s in sentences if s.get("anatomy_keyword"))
-    r2_violations = sum(1 for s in sentences
-                       for v in s.get("violations", [])
-                       if v.get("rule_id") == "R2_ANATOMY")
+    # Overlap ratio threshold: a token is "grounded" if ≥50% of its volume
+    # falls inside the anatomy region.
+    overlap_tau = 0.5
 
-    if n_with_anatomy == 0:
-        return {"grounding_eligible": 0}
+    # Skip "bilateral" — its bbox is the entire volume, so all tokens
+    # trivially achieve 100% overlap. Including it inflates all metrics.
+    SKIP_KEYWORDS = {"bilateral"}
 
-    hit_rate = 1.0 - (r2_violations / n_with_anatomy)
+    # --- Overlap-based metrics (need _tokens_by_id) ---
+    overlap_vals = []        # per-sentence mean overlap ratio
+    hit1, hit4, hit8 = 0, 0, 0
+    prec_nums, prec_dens = 0, 0
+    n_grounding_eligible = 0
 
-    # Evidence card laterality accuracy (from evidence_card data)
+    for s in sentences:
+        kw = s.get("anatomy_keyword")
+        if not kw or kw.lower().strip() in SKIP_KEYWORDS:
+            continue
+        anat_bbox = _resolve_anatomy_bbox(kw)
+        if anat_bbox is None:
+            continue
+
+        tokens_by_id = s.get("_tokens_by_id", {})
+        cited_ids = s.get("topk_token_ids", [])
+        if not tokens_by_id or not cited_ids:
+            n_grounding_eligible += 1
+            continue
+
+        n_grounding_eligible += 1
+
+        # Compute overlap ratio for each cited token
+        overlaps = []
+        for tid in cited_ids:
+            tok = tokens_by_id.get(tid)
+            if tok is None:
+                overlaps.append(0.0)
+                continue
+            overlaps.append(_bbox3d_overlap_ratio(tok["bbox_3d_voxel"], anat_bbox))
+
+        if overlaps:
+            overlap_vals.append(np.mean(overlaps))  # mean overlap for this sentence
+
+        # Hit@k: does top-k contain at least one token with overlap ≥ tau?
+        if len(overlaps) >= 1 and max(overlaps[:1]) >= overlap_tau:
+            hit1 += 1
+        if len(overlaps) >= 4 and max(overlaps[:4]) >= overlap_tau:
+            hit4 += 1
+        if max(overlaps) >= overlap_tau:  # hit@8 (or whatever k is)
+            hit8 += 1
+
+        # Routing precision: fraction of cited tokens with overlap ≥ tau
+        prec_nums += sum(1 for ov in overlaps if ov >= overlap_tau)
+        prec_dens += len(overlaps)
+
+    # --- Laterality accuracy (from evidence card + R1 violations) ---
     lat_correct = 0
     lat_total = 0
     for s in sentences:
@@ -178,17 +367,83 @@ def compute_grounding_metrics(sentences: List[Dict], condition_dir: str) -> Dict
         if allowed in ("unconstrained", "none"):
             continue
         lat_total += 1
-        # Check if any R1 violation exists for this sentence
         has_r1 = any(v.get("rule_id") == "R1_LATERALITY" for v in s.get("violations", []))
         if not has_r1:
             lat_correct += 1
 
-    return {
-        "grounding_eligible": n_with_anatomy,
-        "R2_hit_rate": round(hit_rate * 100, 1),
+    # --- Violation-free rate ---
+    n_viol_free = sum(1 for s in sentences if not s.get("violations"))
+
+    # --- Citation Faithfulness (text-to-token alignment) ---
+    # For generated sentences: does the text laterality match cited token positions?
+    cf_match = 0
+    cf_total = 0
+    # Depth faithfulness: does the text depth match token depth levels?
+    df_match = 0
+    df_total = 0
+
+    for s in sentences:
+        if not s.get("generated", False):
+            continue  # only evaluate generated text
+        text = s.get("sentence_text", "")
+        if not text:
+            continue
+
+        tokens_by_id = s.get("_tokens_by_id", {})
+        cited_ids = s.get("topk_token_ids", [])
+        if not tokens_by_id or not cited_ids:
+            continue
+
+        # Laterality faithfulness
+        text_lat = _parse_text_laterality(text)
+        if text_lat and text_lat != "bilateral":
+            # Get actual token bboxes
+            tok_bboxes = []
+            for tid in cited_ids:
+                tok = tokens_by_id.get(tid)
+                if tok:
+                    tok_bboxes.append(tok["bbox_3d_voxel"])
+            if tok_bboxes:
+                token_lat = _tokens_dominant_side(tok_bboxes)
+                cf_total += 1
+                if _laterality_matches(text_lat, token_lat):
+                    cf_match += 1
+
+        # Depth faithfulness: check if text mentions specific depth terms
+        # and cited tokens are at appropriate levels
+        ec = s.get("evidence_card", {})
+        level_hist = ec.get("level_histogram", {})
+        if level_hist:
+            levels = [int(k) for k in level_hist.keys()]
+            level_range = ec.get("level_range_expected")
+            if level_range and len(level_range) == 2:
+                df_total += 1
+                in_range = ec.get("in_range_count", 0)
+                out_range = ec.get("out_of_range_count", 0)
+                total_depth = in_range + out_range
+                if total_depth > 0 and in_range / total_depth >= 0.5:
+                    df_match += 1
+
+    result: Dict[str, Any] = {
+        "grounding_eligible": n_grounding_eligible,
+        "viol_free_rate": round(n_viol_free / n * 100, 1) if n > 0 else None,
         "lat_accuracy": round(lat_correct / lat_total * 100, 1) if lat_total > 0 else None,
         "lat_total": lat_total,
+        "citation_faith": round(cf_match / cf_total * 100, 1) if cf_total > 0 else None,
+        "citation_faith_n": cf_total,
+        "depth_faith": round(df_match / df_total * 100, 1) if df_total > 0 else None,
+        "depth_faith_n": df_total,
     }
+
+    # Overlap-based metrics (only available when tokens were loaded)
+    if overlap_vals:
+        result["mean_overlap"] = round(np.mean(overlap_vals), 3)
+        result["hit_at_1"] = round(hit1 / n_grounding_eligible * 100, 1)
+        result["hit_at_4"] = round(hit4 / n_grounding_eligible * 100, 1)
+        result["hit_at_8"] = round(hit8 / n_grounding_eligible * 100, 1)
+        result["routing_precision"] = round(prec_nums / prec_dens * 100, 1) if prec_dens > 0 else None
+
+    return result
 
 
 # ── NLG metrics (simplified — use pre-computed if available) ──
@@ -214,20 +469,20 @@ def load_precomputed_nlg(csv_path: Path) -> Dict[str, Dict[str, float]]:
 # TABLE 2: Ablation table
 # ═══════════════════════════════════════════
 
-def generate_table2():
+def generate_table2(nlg_csv: Optional[Path] = None):
     """Generate Table 2 data and LaTeX."""
     print("=" * 80)
     print("TABLE 2: Ablation Chain")
     print("=" * 80)
 
-    nlg_data = load_precomputed_nlg(
-        ROOT / "outputs" / "evaluation_v2" / "metrics_all_conditions.csv"
-    )
+    if nlg_csv is None:
+        nlg_csv = ROOT / "outputs" / "evaluation_v2" / "metrics_all_conditions.csv"
+    nlg_data = load_precomputed_nlg(nlg_csv)
 
     rows = []
     for label, dirname, desc in ABLATION_CHAIN:
         cond_dir = str(ABLATION_DIR / dirname)
-        sentences = load_traces(cond_dir)
+        sentences = load_traces(cond_dir, load_tokens=True)
         if not sentences:
             print(f"  WARNING: No data for {label} ({dirname})")
             continue
@@ -250,10 +505,14 @@ def generate_table2():
         }
         rows.append(row)
 
+        # Print summary with grounding metrics
+        ovl_str = f"Ovl={grounding.get('mean_overlap', 'N/A')}"
+        prec_str = f"Prec={grounding.get('routing_precision', 'N/A')}"
+        cf_str = f"CF={grounding.get('citation_faith', 'N/A')}"
+        df_str = f"DF={grounding.get('depth_faith', 'N/A')}"
         print(f"  {label:<8} | Viol={viol.get('viol_rate', '?'):>6}% "
-              f"R1={viol.get('R1', '?'):>4} R3={viol.get('R3', '?'):>4} "
-              f"R6b={viol.get('R6b', '?'):>3} | "
-              f"C_LLM={compute.get('C_LLM', 0):>5} | "
+              f"R1={viol.get('R1', '?'):>4} R3={viol.get('R3', '?'):>4} | "
+              f"{ovl_str} {prec_str} {cf_str} {df_str} | "
               f"BLEU-4={nlg.get('BLEU-4', 'N/A')}")
 
     # Generate LaTeX
@@ -268,7 +527,21 @@ def generate_table2():
     with open(OUT_DIR / "table2_data.json", "w") as f:
         json.dump(rows, f, indent=2, default=str)
 
+    # Save grounding metrics separately for Table 3 design
+    grounding_keys = [
+        "label", "desc", "grounding_eligible",
+        "mean_overlap", "hit_at_1", "hit_at_4", "hit_at_8",
+        "routing_precision", "lat_accuracy", "lat_total",
+        "citation_faith", "citation_faith_n",
+        "depth_faith", "depth_faith_n",
+        "viol_free_rate",
+    ]
+    grounding_rows = [{k: r.get(k) for k in grounding_keys} for r in rows]
+    with open(OUT_DIR / "table3_grounding_data.json", "w") as f:
+        json.dump(grounding_rows, f, indent=2, default=str)
+
     print(f"\nSaved to {OUT_DIR}/table2_ablation.tex")
+    print(f"Saved to {OUT_DIR}/table3_grounding_data.json")
     return rows
 
 
@@ -597,11 +870,71 @@ def run_counterfactual_analysis():
 # Main
 # ═══════════════════════════════════════════
 
+def _build_ablation_chain(data_dir: Path) -> List[Tuple[str, str, str]]:
+    """Build ablation chain with directory names resolved for the data source."""
+    # Auto-detect: if data_dir contains 5k_ablation, use 5K mapping
+    dir_name = data_dir.name
+    if "5k" in dir_name.lower():
+        dirname_map = _DIRNAME_5K
+    else:
+        dirname_map = _DIRNAME_180
+
+    chain = []
+    for label, desc in ABLATION_CHAIN_LABELS:
+        dirname = dirname_map.get(label)
+        if dirname is None:
+            continue  # config not in this data source (e.g. B2 not in 5K)
+        if (data_dir / dirname / "cases").exists():
+            chain.append((label, dirname, desc))
+        else:
+            print(f"  [SKIP] {label} ({dirname}): no cases/ directory found")
+    return chain
+
+
 def main():
+    global ABLATION_DIR, OUT_DIR, ABLATION_CHAIN
+
+    parser = argparse.ArgumentParser(description="Generate ablation tables and figures")
+    parser.add_argument("--data_dir", type=str, default=None,
+                        help="Path to ablation data directory "
+                             "(default: outputs/ablation_routing_2x2)")
+    parser.add_argument("--out_dir", type=str, default=None,
+                        help="Output directory for tables/figures "
+                             "(default: outputs/paper_figures[_5k])")
+    parser.add_argument("--nlg_csv", type=str, default=None,
+                        help="Path to pre-computed NLG metrics CSV")
+    args = parser.parse_args()
+
+    # Set data directory
+    if args.data_dir:
+        ABLATION_DIR = Path(args.data_dir)
+        if not ABLATION_DIR.is_absolute():
+            ABLATION_DIR = ROOT / ABLATION_DIR
+    else:
+        ABLATION_DIR = ROOT / "outputs" / "ablation_routing_2x2"
+
+    # Set output directory
+    if args.out_dir:
+        OUT_DIR = Path(args.out_dir)
+        if not OUT_DIR.is_absolute():
+            OUT_DIR = ROOT / OUT_DIR
+    elif "5k" in ABLATION_DIR.name.lower():
+        OUT_DIR = ROOT / "outputs" / "paper_figures_5k"
+    else:
+        OUT_DIR = ROOT / "outputs" / "paper_figures"
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Build chain
+    ABLATION_CHAIN = _build_ablation_chain(ABLATION_DIR)
+    print(f"Data dir:   {ABLATION_DIR}")
+    print(f"Output dir: {OUT_DIR}")
+    print(f"Chain:      {[c[0] for c in ABLATION_CHAIN]}")
+    print()
+
     # Table 2 + waterfall data
-    rows = generate_table2()
+    nlg_csv = Path(args.nlg_csv) if args.nlg_csv else None
+    rows = generate_table2(nlg_csv=nlg_csv)
 
     if rows:
         # Figure 1: Waterfall
