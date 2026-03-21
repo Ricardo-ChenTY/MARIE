@@ -674,9 +674,40 @@ Patient-level paired bootstrap (5000 resamples), 95\% CI via percentile method, 
 
 \subsection{Main Results}
 
+\paragraph{Comparison with published methods.}
+Table~\ref{tab:main_nlg} compares ProveTok (B2'v2 configuration) with published CT report generation methods on both datasets.
+Note that task formulations differ: baselines generate full reports end-to-end, while ProveTok generates sentence-level text with topic guidance.
+Evaluation protocols also differ (published vs.\ our train/valid/test split), so direct comparison requires caution.
+
 \begin{table}[H]
 \centering\small
-\caption{Main results on 5K test split (500 cases, 3979 sentences). B2'v2 = official model.}
+\caption{Comparison with published methods on CT-RATE and RadGenome-ChestCT.
+ProveTok uses the B2'v2 configuration (Evidence Card v2 + spatial routing).
+Baselines use published evaluation protocols; ProveTok uses our split (\texttt{seed=42}, 2000/250/250).
+Metrics are not directly comparable due to different task formulations (full-report vs.\ sentence-level generation).}
+\label{tab:main_nlg}
+\begin{tabular}{@{}llc ccc@{}}
+\toprule
+\textbf{Dataset} & \textbf{Method} & \textbf{Protocol}
+  & \textbf{BLEU-4}$\uparrow$ & \textbf{METEOR}$\uparrow$ & \textbf{ROUGE-L}$\uparrow$ \\
+\midrule
+CT-RATE & CT2Rep      & published & 0.172 & 0.173 & 0.243 \\
+CT-RATE & CT-AGRG     & published & 0.172 & 0.196 & 0.280 \\
+CT-RATE & \textbf{ProveTok (ours)} & our split & \textbf{0.467} & \textbf{0.603} & \textbf{0.626} \\
+\midrule
+RadGenome & MedVInT   & published & 0.246 & 0.404 & 0.326 \\
+RadGenome & Reg2RG    & published & 0.249 & 0.441 & 0.367 \\
+RadGenome & \textbf{ProveTok (ours)} & our split & \textbf{0.506} & \textbf{0.660} & \textbf{0.680} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Spatial consistency results (5K test split).}
+Table~\ref{tab:main_results} compares the three routing variants on the 5K test split (500 cases, 3979 sentences).
+
+\begin{table}[H]
+\centering\small
+\caption{Spatial consistency and NLG results on 5K test split (500 cases, 3979 sentences). B2'v2 = official model.}
 \begin{tabular}{lccc}
 \toprule
 & \textbf{B2'v2} (main) & E1 (W\_proj) & Hybrid E1 \\
@@ -717,56 +748,128 @@ This finding informs the decision to use anatomy-primary routing (B2'v2) as the 
 \label{sec:ablations}
 % ============================================================
 
+\subsection{Component Ablation Chain}
+
+Table~\ref{tab:ablation} shows the progressive effect of adding each component to the pipeline, evaluated on 180 cases (90 CT-RATE + 90 RadGenome-ChestCT).
+Each row adds one component to the previous configuration.
+
+\begin{table*}[H]
+\centering
+\caption{Ablation study on 180 test cases (90 CT-RATE + 90 RadGenome-ChestCT).
+Each row adds one component to the previous configuration.
+Viol.\% = total violations / total sentences.
+$C_\text{LLM}$ = number of LLM forward passes (generation + judge).
+NLG metrics computed on generated sentences only (conditions with Stage~3c).}
+\label{tab:ablation}
+\small
+\begin{tabular}{@{}ll rrrrr rr rrr@{}}
+\toprule
+ & & \multicolumn{5}{c}{\textbf{Spatial Consistency}} & \multicolumn{2}{c}{\textbf{Compute}} & \multicolumn{3}{c}{\textbf{NLG Quality}} \\
+\cmidrule(lr){3-7} \cmidrule(lr){8-9} \cmidrule(lr){10-12}
+\textbf{ID} & \textbf{Configuration} & \textbf{Viol.\%}$\downarrow$ & \textbf{R1} & \textbf{R3} & \textbf{R6b} & \textbf{R2\,Hit\%}$\uparrow$ & $C_\text{LLM}$ & $k$ & \textbf{B-4}$\uparrow$ & \textbf{R-L}$\uparrow$ & \textbf{MTR}$\uparrow$ \\
+\midrule
+A0 & Identity $W$ + Spatial & 14.47 & 100 & 91 & 17 & 100.0 & 0 & 8.0 & --- & --- & --- \\
+A1 & Trained $W$ + Spatial & 13.15 & 92 & 80 & 17 & 100.0 & 0 & 8.0 & --- & --- & --- \\
+E1 & Spatial filter + Semantic rerank & 11.41 & 128 & 19 & 17 & 100.0 & 0 & 8.0 & --- & --- & --- \\
+\midrule
+\multicolumn{12}{l}{\textit{+ LLM Generation (Stage 3c--5)}} \\
+B2 & + LLM generation & 11.06 & 124 & 19 & 16 & 100.0 & 1437 & 8.0 & 0.330 & 0.525 & 0.525 \\
+B2' & + Evidence Card v1 & 9.19 & 102 & 19 & 10 & 100.0 & 1437 & 8.0 & 0.482 & 0.650 & 0.618 \\
+\textbf{B2'v2} & \textbf{+ Evidence Card v2} & \textbf{3.9} & \textbf{39} & \textbf{4} & \textbf{13} & \textbf{100.0} & 1437 & 7.9 & \textbf{0.463} & \textbf{0.628} & \textbf{0.608} \\
+C2' & + LLM Judge (Stage 5) & 8.98 & 97 & 19 & 12 & 100.0 & 1455 & 8.0 & 0.489 & 0.660 & 0.628 \\
+D2 & + Repair executor & 9.19 & 99 & 19 & 12 & 100.0 & 1456 & 8.0 & 0.473 & 0.647 & 0.620 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\paragraph{Key observations.}
+\begin{itemize}[nosep]
+\item \textbf{E1 routing eliminates R3}: R3 drops from 91 $\to$ 19 ($-$79\%) by replacing pure spatial routing with spatial filter + semantic rerank, at the cost of increased R1 (100 $\to$ 128).
+\item \textbf{Evidence Card v2 is the largest single-step improvement}: Violation rate drops from 9.19\% $\to$ 3.9\% ($-$58\%), with R1 dropping from 102 $\to$ 39 and R3 from 19 $\to$ 4. The strict laterality/depth gates in Evidence Card v2 directly prevent the LLM from generating inconsistent text.
+\item \textbf{Stage 5 judge and repair add compute without clear gains}: C2' and D2 increase $C_\text{LLM}$ by 18--19 calls but violation rate stays at $\sim$9\% (these were tested on Evidence Card v1, not v2).
+\end{itemize}
+
+Figure~\ref{fig:waterfall} visualizes this progression.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../outputs/paper_figures/fig1_waterfall.pdf}
+\caption{Ablation chain progression. (a) Total violation rate (\%) showing the dramatic reduction at B2'v2 (Evidence Card v2). (b) Per-rule breakdown: R1 (laterality) and R3 (depth) violations. B2'v2 achieves the best balance with R1=39, R3=4.}
+\label{fig:waterfall}
+\end{figure}
+
+\subsection{Budget Sweep: $k$ vs Faithfulness}
+
+Figure~\ref{fig:budget_sweep} shows the effect of varying the routing budget $k$ (tokens cited per sentence) on spatial consistency.
+All configurations use E1 routing (spatial filter + semantic rerank) on 180 cases without LLM generation.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\textwidth]{../outputs/paper_figures/fig2_budget_sweep.pdf}
+\caption{Budget sweep: $k$ (tokens per sentence) vs spatial faithfulness.
+The U-shaped violation rate curve reflects a trade-off: small $k$ causes laterality violations (R1, insufficient coverage), while large $k$ causes depth violations (R3, over-inclusion of coarse tokens).
+Optimal $k^*{=}8$ minimizes total violation rate at 11.41\%.}
+\label{fig:budget_sweep}
+\end{figure}
+
 \subsection{W\_proj Routing Strategy Ablation}
 
 The three configurations in Table~\ref{tab:main_results} constitute a controlled ablation of the routing strategy:
 \begin{itemize}[nosep]
-\item \textbf{B2'v2 $\to$ E1:} Switching from anatomy-primary (IoU-dominant) to semantic-primary (trained $W_{\mathrm{proj}}$ + cosine rerank) trading R1 for R3.
+\item \textbf{B2'v2 $\to$ E1:} Switching from anatomy-primary (IoU-dominant) to semantic-primary (trained $W_{\mathrm{proj}}$ + cosine rerank) trades R1 for R3.
 \item \textbf{E1 $\to$ Hybrid E1:} Adding laterality hard filter to E1 --- no improvement (root cause: IoU-pass set empty for 98\% of R1 violations).
 \end{itemize}
 
-\subsection{Supplementary Ablations (Appendix)}
-
-\begin{table}[H]
-\centering\small
-\begin{tabular}{cll}
-\toprule
-\# & Dimension & Comparison \\
-\midrule
-S1 & Token bank construction & Adaptive split vs.\ fixed-octree vs.\ uniform grid \\
-S2 & Routing budget $k$ & $k \in \{4, 8, 16, 32\}$ sensitivity curve \\
-S3 & Evidence Card version & v1 (80\% threshold) vs.\ v2 strict (90\% + min 2 tokens) \\
-S4 & Stage 5 judge effect & With vs.\ without LLM judge filtering \\
-S5 & Boundary caching & $\beta{=}0.1$ vs.\ $\beta{=}0$ vs.\ $\beta{=}0.2$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-
 % ============================================================
 
-\section{Counterfactual Protocol}
+\section{Counterfactual Sensitivity Analysis}
 \label{sec:counterfactual}
 % ============================================================
 
-\paragraph{Factorial design (location vs.\ content).}
+To validate that the verifier rules detect genuine spatial inconsistencies (rather than spurious patterns), we apply controlled perturbations to the 5K test set (3,979 sentences) and measure the change in violation rate.
 
-\begin{table}[H]
-\centering\small
-\caption{Counterfactual experiments to validate evidence usage.}
-\begin{tabular}{lp{5.2cm}p{5.0cm}}
-\toprule
-Experiment & Intervention & Expected outcome \\
-\midrule
-Content-scramble & Permute token features while keeping bboxes fixed & Faithfulness drops if model uses evidence content \\
-Wrong-location & Keep features but swap bboxes to incorrect region & Laterality/anatomy violations increase \\
-Wrong-region routing & Force routing to spatially incorrect tokens & R1/R2 violations spike \\
-Cross-patient & Use patient A's tokens for patient B & Severe degradation \\
-Token-drop & Replace top-$k$ with low-score tokens & Graded quality degradation \\
-Random-router & Uniform random token sampling & Validates routing necessity \\
-\bottomrule
-\end{tabular}
-\end{table}
+\paragraph{Perturbations.}
+\begin{itemize}[nosep]
+\item \textbf{Paraphrase (control):} Synonym substitution in sentence text without changing spatial claims. Expected: no change in violation rate.
+\item \textbf{Laterality flip:} Replace ``left'' $\leftrightarrow$ ``right'' in sentence text. Expected: R1 violations spike (tokens are on the wrong side).
+\item \textbf{Presence flip:} Replace ``normal'' $\leftrightarrow$ ``abnormal'' for 50\% of eligible sentences. Expected: R6b cross-presence violations increase.
+\end{itemize}
 
+\paragraph{Results.}
+Figure~\ref{fig:counterfactual} shows the results. All perturbations behave as expected:
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../outputs/paper_figures/fig3_counterfactual.pdf}
+\caption{Counterfactual sensitivity analysis on 5K test set (3,979 sentences).
+(a) Overall violation rate: paraphrase control is stable (4.5\% $\to$ 4.5\%), laterality flip spikes to 15.9\%, presence flip to 6.1\%.
+(b) Per-rule breakdown: laterality flip increases R1 from 2 $\to$ 455 while R3 and R6b are unchanged; presence flip increases R6b from 52 $\to$ 114 while R1 and R3 are unchanged.
+Each perturbation selectively triggers exactly the expected rule, confirming rule specificity.}
+\label{fig:counterfactual}
+\end{figure}
+
+\begin{itemize}[nosep]
+\item \textbf{Paraphrase stability:} Violation rate is identical (4.55\% $\to$ 4.55\%), confirming that our rules are robust to surface-level text variation.
+\item \textbf{Laterality flip sensitivity:} R1 jumps from 2 $\to$ 455 ($+$453), violation rate 4.55\% $\to$ 15.93\%. R3 and R6b are unchanged, confirming that R1 specifically detects laterality mismatches.
+\item \textbf{Presence flip sensitivity:} R6b jumps from 52 $\to$ 114 ($+$62), violation rate 4.55\% $\to$ 6.11\%. R1 and R3 are unchanged, confirming that R6b specifically detects cross-presence inconsistencies.
+\end{itemize}
+
+
+% ============================================================
+
+\section{Qualitative Analysis}
+\label{sec:qualitative}
+% ============================================================
+
+Figure~\ref{fig:qualitative} shows a representative example from the 5K test set (case \texttt{train\_10754\_c\_1}, CT-RATE).
+Panel (a) shows the raw axial CT slice; panel (b) overlays the 8 routed tokens, which are spatially concentrated in the right lower lung; panel (c) displays the generated sentence with the Evidence Card metadata.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../outputs/paper_figures/fig4_qualitative.pdf}
+\caption{Qualitative example. (a) CT axial slice at $z{=}96$. (b) Routed tokens ($k{=}8$) overlaid as colored bounding boxes, all localized in the right lower lung. (c) Generated sentence: ``a pleural-based, 20\,mm diameter nodular density increase area compatible with consolidation was observed in the right lung lower lobe superior segment.'' Evidence Card confirms: 8 cited tokens, dominant side = right, same-side ratio = 1.00, laterality gate = right, depth gate = in\_range. Zero violations.}
+\label{fig:qualitative}
+\end{figure}
 
 % ============================================================
 

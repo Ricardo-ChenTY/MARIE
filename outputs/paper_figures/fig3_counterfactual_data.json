@@ -1,0 +1,38 @@
+{
+  "source": "metric_sanity_check.json (actual experiments)",
+  "n_sentences": 3979,
+  "perturbations": {
+    "original": {
+      "viol_rate": 4.55,
+      "R1": 2,
+      "R3": 127,
+      "R6b": 52,
+      "total": 181,
+      "perturbed": 0
+    },
+    "paraphrase": {
+      "viol_rate": 4.55,
+      "R1": 2,
+      "R3": 127,
+      "R6b": 52,
+      "total": 181,
+      "perturbed": 1710
+    },
+    "laterality_flip": {
+      "viol_rate": 15.93,
+      "R1": 455,
+      "R3": 127,
+      "R6b": 52,
+      "total": 634,
+      "perturbed": 614
+    },
+    "presence_flip": {
+      "viol_rate": 6.11,
+      "R1": 2,
+      "R3": 127,
+      "R6b": 114,
+      "total": 243,
+      "perturbed": 62
+    }
+  }
+}

@@ -1,0 +1,24 @@
+\begin{table}[t]
+\centering
+\caption{Comparison with published methods on CT-RATE and RadGenome-ChestCT.
+ProveTok uses the B2'v2 configuration (Evidence Card v2 + spatial routing).
+Baselines use published evaluation protocols; ProveTok uses our train/valid/test split
+(\texttt{seed=42}, 2000/250/250). Metrics are not directly comparable due to
+different task formulations (full-report vs.\ sentence-level generation).}
+\label{tab:main}
+\small
+\begin{tabular}{@{}llc ccc@{}}
+\toprule
+\textbf{Dataset} & \textbf{Method} & \textbf{Protocol}
+  & \textbf{BLEU-4}$\uparrow$ & \textbf{METEOR}$\uparrow$ & \textbf{ROUGE-L}$\uparrow$ \\
+\midrule
+CT-RATE & CT2Rep      & published & 0.172 & 0.173 & 0.243 \\
+CT-RATE & CT-AGRG     & published & 0.172 & 0.196 & 0.280 \\
+CT-RATE & \textbf{ProveTok (ours)} & our split & \textbf{0.467} & \textbf{0.603} & \textbf{0.626} \\
+\midrule
+RadGenome & MedVInT   & published & 0.246 & 0.404 & 0.326 \\
+RadGenome & Reg2RG    & published & 0.249 & 0.441 & 0.367 \\
+RadGenome & \textbf{ProveTok (ours)} & our split & \textbf{0.506} & \textbf{0.660} & \textbf{0.680} \\
+\bottomrule
+\end{tabular}
+\end{table}
