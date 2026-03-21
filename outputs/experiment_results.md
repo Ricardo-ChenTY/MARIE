@@ -81,7 +81,7 @@ Routing-level grounding metrics (token-to-anatomy overlap) and generation-level 
 
 ## Fig 1 — Waterfall Plot (Ablation Chain)
 
-![Waterfall Plot](paper_figures_5k/fig1_waterfall.png)
+![Waterfall Plot](./paper_figures_5k/fig1_waterfall.png)
 
 Left panel: Total violation rate (%) across the ablation chain. B2'v2 achieves the lowest rate (4.2%).
 
@@ -91,7 +91,7 @@ Right panel: Per-rule breakdown (R1 laterality, R3 depth). Key observation: B2'v
 
 ## Fig 2 — Budget Sweep (k vs Spatial Faithfulness)
 
-![Budget Sweep](paper_figures/fig2_budget_sweep.png)
+![Budget Sweep](./paper_figures/fig2_budget_sweep.png)
 
 Token budget k (tokens cited per sentence) vs. violation rate. The sweet spot is k=8: further increasing k adds more out-of-region tokens (R3 increases linearly with k), while k < 8 reduces contextual coverage. At k=1, violation rate is lowest (10.5%) but primarily driven by high R1 (132 violations) from single-token routing being less representative.
 
@@ -99,7 +99,7 @@ Token budget k (tokens cited per sentence) vs. violation rate. The sweet spot is
 
 ## Fig 3 — Counterfactual Sensitivity Analysis
 
-![Counterfactual](paper_figures/fig3_counterfactual.png)
+![Counterfactual](./paper_figures/fig3_counterfactual.png)
 
 Perturbation analysis on 3,979 sentences to validate verifier sensitivity:
 
