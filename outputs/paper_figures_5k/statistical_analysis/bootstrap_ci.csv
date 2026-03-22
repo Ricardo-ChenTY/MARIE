@@ -1,0 +1,8 @@
+config,metric,mean,ci_lo,ci_hi,n_patients
+A0,viol_rate,7.59,6.84,8.35,496
+A1,viol_rate,5.96,5.27,6.64,496
+E1,viol_rate,6.04,5.34,6.77,496
+B2',viol_rate,5.85,5.14,6.6,496
+B2'v2,viol_rate,4.19,3.6,4.83,496
+C2',viol_rate,6.0,5.25,6.79,496
+D2,viol_rate,5.79,5.07,6.55,496

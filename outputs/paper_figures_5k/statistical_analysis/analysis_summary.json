@@ -1,0 +1,17 @@
+{
+  "n_configs": 7,
+  "n_cases_per_config": {
+    "A0": 496,
+    "A1": 496,
+    "E1": 496,
+    "B2'": 496,
+    "B2'v2": 496,
+    "C2'": 496,
+    "D2": 496
+  },
+  "bootstrap_R": 5000,
+  "alpha": 0.05,
+  "adjacent_pairs_tested": 6,
+  "significant_pairs": 3,
+  "best_config_viol": "B2'v2"
+}

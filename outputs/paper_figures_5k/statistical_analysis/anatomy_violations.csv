@@ -1,0 +1,10 @@
+anatomy,n_sentences,n_violated,viol_rate_%,R1,R3,R6b
+bilateral,1122,67,6.0,0,23,45
+right lung,198,58,29.3,56,0,3
+left lung,131,36,27.5,36,0,0
+,2293,6,0.3,6,0,0
+left lower lobe,6,0,0.0,0,0,0
+mediastinum,194,0,0.0,0,0,0
+left upper lobe,10,0,0.0,0,0,0
+right lower lobe,15,0,0.0,0,0,0
+right upper lobe,10,0,0.0,0,0,0
