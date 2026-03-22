@@ -351,7 +351,7 @@ r_i^{(s)} = \cosine(q_s, v_i) = q_s^\top v_i \in [-1, 1].
 \begin{itemize}[nosep]
     \item \textbf{输入：}$r_i^{(s)}$（公式~\ref{eq:route}）+ $\mathrm{bbox}_i$（token 的 3D 边界框，来自 M1 Token Bank）+ $\mathrm{bbox}_{\mathrm{anatomy}}^{(s)}$（句子 $s$ 对应解剖区域的边界框，由 Stage 3a 证据规划器输出的解剖关键词查 \texttt{DEFAULT\_ANATOMY\_BOXES} 规则表获得，坐标为归一化 $[0,1]$ 后乘以 volume 维度 $128^3$）。
     \item \textbf{输出：}$\hat{r}_i^{(s)}$ — 融合空间先验后的路由分数。对所有 $B$ 个 token 排序后取 top-$k$（默认 $k=8$），得到证据集 $E_s$。
-    \item \textbf{参数来源：}$\lambda_{\mathrm{spatial}} = 0.3$ 来自 CT-GLIP grounded VLP 的经验值。在解剖优先模式~\eqref{eq:anat_primary} 中，$\epsilon = 0.05$ 确保同 IoU token 之间仍有语义分辨力。
+    \item \textbf{参数来源：}$\lambda_{\mathrm{spatial}} = 0.3$ 为我们实验中设定的超参，通过消融网格 $\{0, 0.1, 0.3, 0.5\}$ 选出（见表~\ref{tab:hyper}）。在解剖优先模式~\eqref{eq:anat_primary} 中，$\epsilon = 0.05$ 确保同 IoU token 之间仍有语义分辨力。
 \end{itemize}
 \end{definition}
 
