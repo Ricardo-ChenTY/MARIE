@@ -145,6 +145,13 @@ A_i = \clip\!\Bigg(
 其中 $\mu_i, \sigma_i$ 为局部均值与标准差，$\mathrm{streak}_i$ 捕捉条纹状结构噪声，$\mathrm{outlier}_i$ 衡量体素级异常程度，$\normop(\cdot)$ 将各指标映射到 $[0,1]$。权重满足 $w_{\mathrm{snr}} + w_{\mathrm{st}} + w_{\mathrm{out}} = 1$，默认 $(0.5, 0.3, 0.2)$。
 \end{definition}
 
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}CT volume $V$ 中第 $i$ 个空间单元（八叉树叶节点）的局部体素统计。$\mu_i, \sigma_i$ 由该单元对应的体素灰度值计算；$\mathrm{streak}_i$ 通过方向梯度检测条纹结构；$\mathrm{outlier}_i$ 通过体素灰度 z-score 阈值判定。
+    \item \textbf{输出：}$A_i \in [0,1]$ — 伪影风险概率。传给下游 sigmoid 软门控（公式~\ref{eq:gate}）。
+    \item \textbf{参数来源：}权重 $(w_{\mathrm{snr}}, w_{\mathrm{st}}, w_{\mathrm{out}}) = (0.5, 0.3, 0.2)$ 为预设超参，根据 CT 伪影的临床先验设定（SNR 异常最具区分力，条纹次之）。$\epsilon$ 为数值稳定常数（防止除零）。
+\end{itemize}
+
 \paragraph{设计动机。}
 逆信噪比项 $\sigma_i/(|\mu_i|+\epsilon)$ 在噪声主导时增大。条纹伪影（金属/射束硬化）与统计离群值提供互补检测通道。裁剪到 $[0,1]$ 保证 $A_i$ 为有效的风险概率。
 
@@ -163,6 +170,13 @@ g_i = \sigmoid\!\big(-k_{\mathrm{gate}}(A_i - \tau_A)\big)
 \end{equation}
 其中 $k_{\mathrm{gate}} > 0$ 控制陡峭度（默认 15），$\tau_A \in (0,1)$ 为伪影阈值（默认 0.85）。
 \end{definition}
+
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}$A_i \in [0,1]$（来自公式~\ref{eq:artifact} 的伪影风险分数）。
+    \item \textbf{输出：}$g_i \in (0,1)$ — 软门控权重。$g_i \to 1$ 表示``低伪影，保留''；$g_i \to 0$ 表示``高伪影，抑制''。传给下游综合评分 $S_i$（公式~\ref{eq:score}）。
+    \item \textbf{参数来源：}$\tau_A = 0.85$ 为伪影阈值，基于临床 CT 图像质量标准（$A_i > 0.85$ 的区域在视觉上不可接受）。$k_{\mathrm{gate}} = 15$ 控制过渡陡峭度——取 15 使阈值两侧 $\pm 0.1$ 范围内的门控值从 0.82 迅速跌至 0.18，实现近似硬截断同时保持可微。
+\end{itemize}
 
 \begin{proposition}[门控性质]\label{prop:gate}
 \begin{enumerate}[label=(\roman*)]
@@ -196,6 +210,13 @@ A_i=0 \Rightarrow g_i \approx \sigmoid(12.75) \approx 1.0.
 
 预训练的 3D 编码器（SwinUNETR，$\mathrm{feature\_size}=48$，$\mathrm{spatial\_dims}=3$）处理体数据 $V$，输出特征图 $F = \{f_i \in \RR^d\}_{i=1}^{N}$。输入体积统一 resize 到 $128^3$。编码器权重\textbf{全程冻结}，无梯度回传。
 
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}CT volume $V$，经预处理 resize 至 $128 \times 128 \times 128$ 体素。
+    \item \textbf{输出：}特征图 $F = \{f_i \in \RR^{768}\}_{i=1}^{N}$，其中 $d=768$ 由 SwinUNETR 的 \texttt{feature\_size=48} 决定（bottleneck 输出维度 $= 48 \times 16 = 768$）。$N$ 为空间网格大小（初始 $128^3 / \text{patch}^3$）。
+    \item \textbf{参数来源：}SwinUNETR 权重来自 BTCV（Beyond the Cranial Vault）多器官分割预训练检查点（MONAI 提供），全程冻结以避免在小数据集上过拟合并保证特征一致性。
+\end{itemize}
+
 
 \subsection{Stage 2：综合评分}
 
@@ -212,6 +233,13 @@ q(x_i) = \frac{\mathrm{rank}(x_i)}{n}, \quad n = |\{x_j : \text{同一深度层}
 S_i = g_i \cdot \big(\lambda_h \, q(H_i) + \lambda_p \, q(P_i)\big), \quad \lambda_h + \lambda_p = 1.
 \end{equation}
 默认：$\lambda_h = 0.6$，$\lambda_p = 0.4$。
+
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}$g_i$（来自公式~\ref{eq:gate}）、$H_i$（不确定性，包括特征熵 $H_i^{\mathrm{ent}}$、patch 方差 $H_i^{\mathrm{var}}$、边界指示 $B_i$）、$P_i$（语义先验，由 $F$ 的局部范数 $\|F\|_{\Omega_i}$ 经 sigmoid 门控导出）。均在 Stage 1 输出 $F$ 上计算。
+    \item \textbf{输出：}$S_i \in [0,1)$ — 综合重要性分数。用于自适应八叉树分裂的候选排序和 top-$B$ 选择。
+    \item \textbf{参数来源：}$\lambda_h = 0.6, \lambda_p = 0.4$ — 不确定性优先于语义先验，因为高不确定性区域更可能包含需要详细报告的病理性发现。$q(\cdot)$ 按同一深度层的分位数归一化，确保不同深度层的分数可比。
+\end{itemize}
 \end{definition}
 
 \begin{proposition}[分数有界性]\label{prop:score}
@@ -252,6 +280,13 @@ b_i &= \frac{1}{|\mathcal{N}(i)|} \sum_{j \in \mathcal{N}(i)} f_j, \label{eq:nei
 f_i^{\mathrm{export}} &= (1 - \beta)\, f_i + \beta\, b_i, \quad \beta \in [0,1]. \label{eq:export}
 \end{align}
 默认 $\beta = 0.1$。边界框额外扩展 12.5\%。
+
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}八叉树选中的 $B$ 个叶节点特征 $\{f_i\}$，以及每个节点的邻居集合 $\mathcal{N}(i)$（同深度、空间相邻）。
+    \item \textbf{输出：}\textbf{Token Bank} $\{(f_i^{\mathrm{export}}, \mathrm{bbox}_i, \mathrm{level}_i)\}_{i=1}^{B}$ — 即 $B$ 个带空间坐标和深度层级的视觉 token。这是整个 M1 模块的最终输出，直接传给 M2 路由器。
+    \item \textbf{参数来源：}$\beta = 0.1$ 为轻度邻域融合，仅在边界处引入少量空间上下文以减少 block artifact。$12.5\%$ bbox 扩展为工程选择，确保 token 边界略有重叠。
+\end{itemize}
 \end{definition}
 
 \begin{proposition}[凸组合稳定性]
@@ -282,6 +317,13 @@ f_i^{\mathrm{export}} &= (1 - \beta)\, f_i + \beta\, b_i, \quad \beta \in [0,1].
 v_i = \frac{W_{\mathrm{proj}} f_i}{\|W_{\mathrm{proj}} f_i\|_2}, \quad v_i \in \RR^{d_t}, \quad \|v_i\|_2 = 1.
 \end{equation}
 仅 $W_{\mathrm{proj}} \in \RR^{d_t \times d}$ 可学习。
+
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}$f_i \in \RR^{768}$（来自 M1 Token Bank 的视觉特征 $f_i^{\mathrm{export}}$）。
+    \item \textbf{输出：}$v_i \in \RR^{384}$，$\|v_i\|_2 = 1$ — 归一化的视觉嵌入，与文本查询在同一 $384$ 维空间中。
+    \item \textbf{参数来源：}$W_{\mathrm{proj}} \in \RR^{384 \times 768}$ 是\textbf{整个流水线中唯一可学习的参数}（$384 \times 768 = 294{,}912$ 个参数）。$d_t = 384$ 由文本编码器 \texttt{all-MiniLM-L6-v2} 的输出维度决定（必须匹配）。初始化为正交矩阵。当未训练时退化为截断单位矩阵（A0 配置）。
+\end{itemize}
 \end{definition}
 
 \begin{definition}[路由分数]
@@ -289,6 +331,13 @@ v_i = \frac{W_{\mathrm{proj}} f_i}{\|W_{\mathrm{proj}} f_i\|_2}, \quad v_i \in \
 \begin{equation}\label{eq:route}
 r_i^{(s)} = \cosine(q_s, v_i) = q_s^\top v_i \in [-1, 1].
 \end{equation}
+
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}$q_s \in \RR^{384}$（来自 \texttt{all-MiniLM-L6-v2} 冻结文本编码器，输入为句子级 topic 字符串，如 ``consolidation in right lower lobe''）和 $v_i \in \RR^{384}$（来自公式~\ref{eq:proj}）。两者均已 $L_2$ 归一化。
+    \item \textbf{输出：}$r_i^{(s)} \in [-1, 1]$ — 每个 token $i$ 对句子 $s$ 的语义相关度。值越大表示该 token 的视觉特征与句子主题在嵌入空间中越对齐。
+    \item \textbf{参数来源：}无额外参数。余弦相似度是标准度量；$L_2$ 归一化保证值域在 $[-1,1]$。
+\end{itemize}
 \end{definition}
 
 \begin{definition}[空间先验增强]
@@ -297,6 +346,13 @@ r_i^{(s)} = \cosine(q_s, v_i) = q_s^\top v_i \in [-1, 1].
 \hat{r}_i^{(s)} = r_i^{(s)} + \lambda_{\mathrm{spatial}} \cdot \IoU(\mathrm{bbox}_i, \mathrm{bbox}_{\mathrm{anatomy}}^{(s)}),
 \end{equation}
 其中 $\IoU \in [0,1]$，$\lambda_{\mathrm{spatial}} \geq 0$（默认 0.3）。因此 $\hat{r}_i^{(s)} \in [-1, 1+\lambda_{\mathrm{spatial}}]$。
+
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}$r_i^{(s)}$（公式~\ref{eq:route}）+ $\mathrm{bbox}_i$（token 的 3D 边界框，来自 M1 Token Bank）+ $\mathrm{bbox}_{\mathrm{anatomy}}^{(s)}$（句子 $s$ 对应解剖区域的边界框，由 Stage 3a 证据规划器输出的解剖关键词查 \texttt{DEFAULT\_ANATOMY\_BOXES} 规则表获得，坐标为归一化 $[0,1]$ 后乘以 volume 维度 $128^3$）。
+    \item \textbf{输出：}$\hat{r}_i^{(s)}$ — 融合空间先验后的路由分数。对所有 $B$ 个 token 排序后取 top-$k$（默认 $k=8$），得到证据集 $E_s$。
+    \item \textbf{参数来源：}$\lambda_{\mathrm{spatial}} = 0.3$ 来自 CT-GLIP grounded VLP 的经验值。在解剖优先模式~\eqref{eq:anat_primary} 中，$\epsilon = 0.05$ 确保同 IoU token 之间仍有语义分辨力。
+\end{itemize}
 \end{definition}
 
 按 $\hat{r}_i^{(s)}$ 取 top-$k$ 的 token 构成句子 $s$ 的证据集 $E_s$。
@@ -321,6 +377,13 @@ r_i^{(s)} = \cosine(q_s, v_i) = q_s^\top v_i \in [-1, 1].
      {\sum_{j \in \mathcal{C}_s} \exp(\hat{r}_j^{(s)}/\tau)}.
 \end{equation}
 默认 $\tau = 0.07$。
+
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入（训练数据）：}通过 bootstrap 策略构建——先用 $W_{\mathrm{proj}} = I$ 跑一遍完整流水线，从 \texttt{trace.jsonl} 中提取 (句子 $s$, cited token IDs $\{t_1,\ldots,t_k\}$) 配对。正例特征 $\bar{f}_s^+ = \frac{1}{k}\sum_{j=1}^{k} f_{t_j}$（cited token 均值）。批内其它句子的正例作为负样本（in-batch negatives）。
+    \item \textbf{输出：}训练后的 $W_{\mathrm{proj}}$ — 使视觉嵌入 $v_i$ 与语义相关的文本查询 $q_s$ 在 $\RR^{384}$ 空间中对齐。
+    \item \textbf{参数来源：}$\tau = 0.07$ 来自 MoCo/CLIP 的标准温度值；batch size $N=32$；AdamW 优化器（$\mathrm{lr}=10^{-3}$，$\mathrm{weight\_decay}=10^{-4}$）；余弦退火调度器；早停 patience=10 epochs（最大 50 epochs）。
+\end{itemize}
 \end{definition}
 
 \subsubsection{第一步：Logit 与 Softmax 定义}
@@ -391,6 +454,13 @@ I(x; c) \geq \log |\mathcal{C}_s| - \mathcal{L}_s.
 
 规划器接收粗 token 子集（预算 $B_{\mathrm{plan}} = \min(32, B/4)$），生成结构化计划：有序的句子主题列表，每句附带解剖关键词与目标深度层级。
 
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}Token Bank 的前 $B_{\mathrm{plan}}$ 个 token（按 $S_i$ 降序选取），包含每个 token 的 bbox 中心坐标、深度层级和 volume 级元数据。LLM 仅接收文本化的 token 摘要（坐标、层级），不接收视觉特征向量。
+    \item \textbf{输出：}结构化计划——一个有序列表 $\{(s_t, \mathrm{anatomy\_keyword}_t, [\ell_{\min}, \ell_{\max}]_t)\}_{t=1}^{T}$，其中 $s_t$ 为句子 topic，$\mathrm{anatomy\_keyword}_t$ 用于查询解剖 bbox，$[\ell_{\min}, \ell_{\max}]_t$ 为预期八叉树深度范围。$T$ 为规划句数（由 LLM 自动确定）。
+    \item \textbf{参数来源：}$B_{\mathrm{plan}} = \min(32, B/4)$ — 限制规划 token 数以降低 LLM prompt 长度；LLM 为 Llama-3.1-8B-Instruct，temperature=0.3。
+\end{itemize}
+
 \subsection{Stage 3b：逐句路由}
 
 对每个计划的句子主题 $s$：
@@ -405,6 +475,44 @@ LLM \textbf{逐句调用}。对第 $t$ 句：
     \item \textbf{可见输入（视觉前缀）：}仅 $E_t$ 中 $k$ 个 token 嵌入（按空间顺序拼接）+ 此前已生成句子的文本历史。
     \item \textbf{输出：}单个报告句子 $y_t$。
 \end{itemize}
+
+\paragraph{输入 / 输出 / 参数来源（完整 prompt 结构）。}
+\begin{itemize}[nosep]
+    \item \textbf{输入组成：}(1) 系统消息（角色定义）；(2) Token block：对每个 $i \in E_t$ 提供 \texttt{token\_id}、\texttt{level}、\texttt{center (x,y,z)}、\texttt{bbox}、\texttt{volume}、\texttt{score}；(3) 证据卡（Evidence Card）：\texttt{laterality\_allowed}、\texttt{depth\_allowed}（见下文）；(4) 句子 topic $s_t$（来自 Stage 3a）；(5) 文本历史 $\{y_1, \ldots, y_{t-1}\}$（此前已生成的句子）。注意：LLM 接收的是 token 的\textbf{文本化空间描述}，而非原始视觉特征向量。
+    \item \textbf{输出：}报告句子 $y_t$（自然语言文本），由 Llama-3.1-8B-Instruct 在 temperature=0.3 下生成。
+    \item \textbf{参数来源：}temperature=0.3（较低以减少幻觉，同时保留一定多样性）；每句一次 LLM 调用。
+\end{itemize}
+
+\subsection{证据卡构建}
+
+对 $E_s$ 中的每个 token，按 bbox 中心 $x$ 坐标分类侧别：
+\begin{equation}
+\mathrm{side}(i) = \begin{cases}
+    \text{left}  & \text{if } x_c > x_{\mathrm{mid}} + \delta, \\
+    \text{right} & \text{if } x_c < x_{\mathrm{mid}} - \delta, \\
+    \text{cross} & \text{otherwise},
+\end{cases}
+\end{equation}
+其中 $x_c = (x_{\min} + x_{\max})/2$，$x_{\mathrm{mid}} = W/2 = 64$（$128^3$ volume），$\delta = 0$（默认无容忍度）。
+
+\textbf{主导侧比（Same-Side Ratio, SSR）：}
+\begin{equation}
+\rho = \frac{\max(n_L, n_R)}{n_L + n_R},
+\end{equation}
+其中 $n_L, n_R$ 为 left/right token 的数量（cross token 不计入分母）。
+
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}$E_s$（$k$ 个 cited token 的 bbox 集合）+ volume 宽度 $W = 128$。
+    \item \textbf{输出：}证据卡包含两个门控字段：
+    \begin{itemize}[nosep]
+        \item \texttt{laterality\_allowed}：\{left, right, bilateral, none\}。\textbf{v1}（B2'配置）：直接取主导侧。\textbf{v2}（B2'v2 配置，严格模式）：仅当 $\rho \geq 0.9$ 且非 cross token $\geq 2$ 时才允许 left/right 声明。
+        \item \texttt{depth\_allowed}：\{in\_range, none\}。\textbf{v2}：仅当 $\geq 75\%$ 的 token 在预期深度范围 $[\ell_{\min}, \ell_{\max}]$ 内时允许深度相关描述。
+    \end{itemize}
+    \item \textbf{参数来源：}SSR 阈值 0.9 和最少 2 个非 cross token 的要求，来自 450-case 实验中 B2' → B2'v2 的消融发现——放松这些条件会导致 R1/R3 违规率上升。$\delta = 0$ 表示 token 中心恰好在中线上归为 cross。
+\end{itemize}
+
+LLM 在生成时遵循证据卡约束：若 \texttt{laterality\_allowed=none}，则生成文本中不包含侧别词（left/right）；若 \texttt{depth\_allowed=none}，则不包含深度定位词（upper/lower）。
 
 \subsection{接口正确性：构造性引用}
 
@@ -467,6 +575,13 @@ LLM \textbf{逐句调用}。对第 $t$ 句：
 
 每条规则 $r$ 输出：二值判定（通过/失败）及严重度 $\mathrm{sev}_r \in [0,1]$。默认严重度配置：$\mathrm{sev}_{\mathrm{R1}}=1.0$、$\mathrm{sev}_{\mathrm{R2}}=0.8$、$\mathrm{sev}_{\mathrm{R3}}=0.7$、$\mathrm{sev}_{\mathrm{R4}}=0.6$、$\mathrm{sev}_{\mathrm{R5}}=1.0$。
 
+\paragraph{M4 整体输入 / 输出。}
+\begin{itemize}[nosep]
+    \item \textbf{输入（每句）：}(1) 生成的句子 $y_t$（文本）；(2) cited token 集合 $E_t$（每个 token 的 bbox、depth level）；(3) 解剖 bbox $\mathrm{bbox}_{\mathrm{anatomy}}^{(s)}$（来自 \texttt{DEFAULT\_ANATOMY\_BOXES} 规则表）；(4) volume 宽度 $W=128$（用于计算 $x_{\mathrm{mid}}$）；(5) 同一 volume 的所有已生成句子（R6 跨句检查需要）。
+    \item \textbf{输出（每句）：}违规列表 $\{(r, \mathrm{sev}_r, \mathrm{details})\}$，其中 $r \in \{\mathrm{R1}, \mathrm{R2}, \mathrm{R3}, \mathrm{R6a}, \mathrm{R6b}\}$。无违规则为空列表。
+    \item \textbf{参数来源：}$\theta_{\mathrm{ratio}} = 0.6$（R1）和 $\theta_{\mathrm{support}} = 0.8$（R2）由 450-case 实验的阈值 sweep 确定。$\tau_{\mathrm{IoU}} = 0.04$（mediastinum）/ $0.05$（其它）由解剖结构大小决定。严重度权重为预设值：R1（侧别）和 R5（否定）为 1.0（最严重），R3（深度）为 0.7（允许一定宽容度）。
+\end{itemize}
+
 \begin{remark}[当前实验中的规则启用状态]
 450/450 实验中：R4（大小/范围合理性）\textbf{已禁用}（阈值未校准）；R5 的回退词典\textbf{已禁用}（仅保留元数据级否定检测）。R1--R3 和 R6 正常启用。
 \end{remark}
@@ -497,6 +612,13 @@ LLM \textbf{逐句调用}。对第 $t$ 句：
 \hat{r}_i^{(s)\prime} = \hat{r}_i^{(s)} - \gamma \cdot \ln(1 + \mathrm{sev}_i^{(s)}),
 \end{equation}
 其中 $\gamma > 0$ 为惩罚缩放因子（默认取 $\gamma = 2.0$）。
+
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}$\hat{r}_i^{(s)}$（原始路由分数，来自公式~\ref{eq:spatial} 或 \ref{eq:anat_primary}）+ $\mathrm{sev}_i^{(s)}$（该 token 在该句的违规严重度汇聚值）。
+    \item \textbf{输出：}$\hat{r}_i^{(s)\prime}$ — 惩罚后的路由分数。对所有 $B$ 个 token 重新排序取 top-$k$，得到新证据集 $E_s'$，用于重新生成句子。
+    \item \textbf{参数来源：}$\gamma = 2.0$ 确保最大惩罚 $\gamma \ln 2 \approx 1.386$ 足以将严重违规 token（$\mathrm{sev}=1$）从 top-$k$ 中挤出——因为正常路由分数范围 $[-1, 1.3]$（含 $\lambda_{\mathrm{spatial}}$），惩罚量占满量程的约 $50\%$。$\ln(1+x)$ 的对数形式使轻微违规（$\mathrm{sev} \ll 1$）受到较小惩罚，避免过度修正。
+\end{itemize}
 \end{definition}
 
 \begin{proposition}[惩罚有界性与保序性]
@@ -536,6 +658,13 @@ LLM \textbf{逐句调用}。对第 $t$ 句：
 C_{\mathrm{LLM}} = \sum_{j=1}^{J} (|p_j| + |g_j|),
 \end{equation}
 其中 $|p_j|$ = 提示长度，$|g_j|$ = 生成长度。
+
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}所有 LLM 调用的 prompt token 数 $|p_j|$ 和生成 token 数 $|g_j|$。包括 Stage 3a（规划）、Stage 3c（生成）、Stage 5a（LLM 裁判）的每次调用。
+    \item \textbf{输出：}$C_{\mathrm{LLM}}$（总 token 代价）。用于配置间的公平计算量对比——例如 C2'（含裁判）比 B2'v2（无裁判）多消耗 $\sim 3\%$ 的 LLM token。
+    \item \textbf{当前实现简化：}代码中按调用次数统计 $C_{\mathrm{LLM}} = n_{\mathrm{gen}} + n_{\mathrm{judge}}$，尚未逐调用记录 $|p_j|, |g_j|$。Table 2 中的 $C_{\mathrm{LLM}}$ 列即为调用次数。
+\end{itemize}
 \end{definition}
 
 \begin{remark}[$C_{\mathrm{LLM}}$ 实现简化]
@@ -601,6 +730,13 @@ C_{\mathrm{attn}}^{\mathrm{cache}} = \sum_{j=1}^{J}\left(
     \end{equation}
 \end{enumerate}
 \end{definition}
+
+\paragraph{输入 / 输出 / 参数来源。}
+\begin{itemize}[nosep]
+    \item \textbf{输入：}$n$ 个病人的指标对 $\{(m_i^A, m_i^B)\}$，其中 $A, B$ 为两个待比较的消融配置。$m_i$ 可以是违规率、BLEU-4、CF 等任意标量指标，按病人聚合（每个病人有多个句子，先取均值）。
+    \item \textbf{输出：}$95\%$ 置信区间 $[\bar{\delta}^*_{\mathrm{lo}}, \bar{\delta}^*_{\mathrm{hi}}]$。若 CI 不跨零则配置间差异显著。
+    \item \textbf{参数来源：}$R=5000$（bootstrap 重采样次数）为统计学标准推荐值（1000--10000 范围内），在精度和计算量之间取平衡。$\alpha=0.05$（$95\%$ CI）为惯例。
+\end{itemize}
 
 \paragraph{为何按病人级采样？}同一 CT 扫描内的句子相关（相同解剖、病理、图像质量）。按句级采样会低估方差，产生虚假窄 CI。病人级重采样保留组内相关性。
 
