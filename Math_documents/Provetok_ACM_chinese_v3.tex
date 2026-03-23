@@ -377,33 +377,105 @@ r_i^{(s)} = \cosine(q_s, v_i) = q_s^\top v_i \in [-1, 1].
      {\sum_{j \in \mathcal{C}_s} \exp(\hat{r}_j^{(s)}/\tau)}.
 \end{equation}
 默认 $\tau = 0.07$。
+\end{definition}
+
+\paragraph{正样本与负样本的构建。}
+
+训练数据通过 \textbf{bootstrap 策略}构建。具体步骤如下：
+
+\subparagraph{Step 1：用 A0 配置生成伪标签。}
+令 $W_{\mathrm{proj}} = I$（单位矩阵），跑一遍完整流水线（A0 配置）。对每个病例的每个句子 $s$：
+\begin{enumerate}[nosep]
+    \item Stage 3a 根据句子的 topic 文本查询解剖关键词表（\texttt{DEFAULT\_ANATOMY\_BOXES}），得到该句子对应的解剖区域 3D 边界框 $\mathrm{bbox}_{\mathrm{anatomy}}^{(s)}$。例如 topic 为 ``consolidation in right lower lobe'' 时，查到 right lower lobe 的标准 bbox。
+    \item 将 $\mathrm{bbox}_{\mathrm{anatomy}}^{(s)}$ 与 Token Bank 中所有 $B=128$ 个 token 的 bbox 逐一计算 3D IoU。IoU 高的 token 在空间上落在该解剖区域内。
+    \item 按 IoU 分数排序，取前 $k=8$ 个 token，将其 ID 写入 \texttt{trace.jsonl} 的 \texttt{topk\_token\_ids} 字段。
+\end{enumerate}
+由于 $W_{\mathrm{proj}} = I$ 时语义分数 $r_i^{(s)}$ 基本是噪声，排序实际由 IoU 项主导。因此正样本的``标签''不来自人工标注，而来自空间 IoU 的自动对齐——这就是 bootstrap 的含义：用一个弱信号（空间重叠）生成伪标签来训练一个更强的信号（语义匹配）。
+
+\subparagraph{Step 2：从 trace.jsonl 提取正样本。}
+InfoNCE 训练脚本读取 A0 产出的 \texttt{trace.jsonl}，对每个句子 $s$，将其 \texttt{topk\_token\_ids} 中记录的 $k$ 个 token 作为正样本集：
+\[
+\mathcal{P}_s = \{t_1, t_2, \ldots, t_k\}, \quad |\mathcal{P}_s| = k = 8.
+\]
+这 $k$ 个 token 就是与句子 $s$ 所描述的解剖区域空间重叠最大的视觉 token。
+
+\subparagraph{Step 3：In-batch Negatives 构建负样本。}
+一个 mini-batch 从训练集中采样 $N=32$ 个句子 $\{s_1, s_2, \ldots, s_N\}$，每个句子各有其正样本集。对句子 $s$ 而言，batch 内其余 $N-1$ 个句子的正样本 token 均作为负样本：
+\[
+\mathcal{N}_s = \bigcup_{s' \neq s} \mathcal{P}_{s'}, \quad
+|\mathcal{N}_s| = (N-1) \times k = 31 \times 8 = 248.
+\]
+因此候选集大小为 $|\mathcal{C}_s| = |\mathcal{P}_s| + |\mathcal{N}_s| = k + (N-1)k = Nk = 256$。
+
+\textbf{为什么用 in-batch negatives？}(1) 计算高效，无需额外采样，batch 内自然提供；(2) 同一 batch 的句子来自不同解剖区域，形成``硬负样本''——例如 mediastinum 的 token 和 left lung 的 token 在空间上可能很近，迫使模型学到语义区分而非单纯空间距离；(3) 与 MoCo/SimCLR/CLIP 的训练范式一致。
+
+\textbf{False negative 问题。}若 batch 内两个句子恰好描述同一解剖区域（如 $s_1$ 和 $s_5$ 都描述 left lung），则 $s_5$ 的正样本 token 被错误地当作 $s_1$ 的负样本。但实践中 batch 内 32 个句子通常来自不同病例的不同解剖区域，碰撞概率很低，且 InfoNCE 对少量 false negatives 具有鲁棒性~(Chuang et al., 2020)。
+
+\paragraph{训练目标的直觉。}
+InfoNCE 训练使 $W_{\mathrm{proj}}$ 学会将句子查询 $q_s$ 与其正样本 token（空间上对应的 token）在 $\RR^{384}$ 嵌入空间中拉近，同时推远与其他句子关联的 token（负样本）。训练完成后，语义余弦分数 $r_i^{(s)}$ 变得可靠，可以从解剖优先模式（公式~\ref{eq:anat_priority}）切换回标准模式（公式~\ref{eq:spatial}）。
 
 \paragraph{输入 / 输出 / 参数来源。}
 \begin{itemize}[nosep]
-    \item \textbf{输入（训练数据）：}通过 bootstrap 策略构建——先用 $W_{\mathrm{proj}} = I$ 跑一遍完整流水线，从 \texttt{trace.jsonl} 中提取 (句子 $s$, cited token IDs $\{t_1,\ldots,t_k\}$) 配对。正例特征 $\bar{f}_s^+ = \frac{1}{k}\sum_{j=1}^{k} f_{t_j}$（cited token 均值）。批内其它句子的正例作为负样本（in-batch negatives）。
-    \item \textbf{输出：}训练后的 $W_{\mathrm{proj}}$ — 使视觉嵌入 $v_i$ 与语义相关的文本查询 $q_s$ 在 $\RR^{384}$ 空间中对齐。
+    \item \textbf{输入：}A0 流水线产出的 \texttt{trace.jsonl}（提供 $(s, \mathcal{P}_s)$ 配对），以及 M1 Token Bank 导出的冻结视觉特征 $\{f_i^{\mathrm{export}} \in \RR^{768}\}$。
+    \item \textbf{输出：}训练后的 $W_{\mathrm{proj}} \in \RR^{384 \times 768}$ — 使视觉嵌入 $v_i$ 与语义相关的文本查询 $q_s$ 在 $\RR^{384}$ 空间中对齐。
     \item \textbf{参数来源：}$\tau = 0.07$ 来自 MoCo/CLIP 的标准温度值；batch size $N=32$；AdamW 优化器（$\mathrm{lr}=10^{-3}$，$\mathrm{weight\_decay}=10^{-4}$）；余弦退火调度器；早停 patience=10 epochs（最大 50 epochs）。
 \end{itemize}
-\end{definition}
 
-\subsubsection{第一步：Logit 与 Softmax 定义}
+\subsubsection{训练过程：前向传播}
 
-定义温度缩放 logit 与 softmax 分布：
+给定 batch 内句子 $s$ 和候选集 $\mathcal{C}_s$ 中的所有 token $j$，前向传播分为以下步骤：
+
+\paragraph{Step 3a — Token 投影。}
+每个 token 的冻结视觉特征 $f_j \in \RR^{768}$（来自 M1 Token Bank，不参与梯度更新）经过可学习投影矩阵并 $L_2$ 归一化：
+\[
+f_j \in \RR^{768} \xrightarrow{W_{\mathrm{proj}}} W_{\mathrm{proj}} f_j
+\xrightarrow{L_2\text{ norm}} v_j = \frac{W_{\mathrm{proj}} f_j}{\|W_{\mathrm{proj}} f_j\|_2} \in \RR^{384}.
+\]
+$W_{\mathrm{proj}} \in \RR^{384 \times 768}$ 是整个训练过程中\textbf{唯一可学习的参数}（$384 \times 768 = 294{,}912$ 个参数）。
+
+\paragraph{Step 3b — 文本查询编码。}
+\[
+q_s = \mathrm{MiniLM}(\mathrm{topic}_s) \in \RR^{384}, \quad \|q_s\|_2 = 1.
+\]
+MiniLM 编码器同样冻结，不参与梯度更新。
+
+\paragraph{Step 3c — 计算余弦相似度（路由分数）。}
+\[
+r_j^{(s)} = q_s^\top v_j \in [-1, 1].
+\]
+
+\paragraph{Step 3d — 温度缩放 + Softmax。}
 \begin{equation}
-z_j \triangleq \frac{\hat{r}_j^{(s)}}{\tau}, \qquad
+z_j \triangleq \frac{r_j^{(s)}}{\tau}, \qquad
 p_j \triangleq \frac{\exp(z_j)}{\sum_{u \in \mathcal{C}_s} \exp(z_u)}.
 \end{equation}
-满足 $\sum_j p_j = 1$，$p_j > 0$。
+满足 $\sum_j p_j = 1$，$p_j > 0$。$\tau = 0.07$ 很小，使得 softmax 分布非常尖锐：两个 token 余弦差 0.1 时，logit 差为 $0.1/0.07 \approx 1.43$，softmax 概率比差 $e^{1.43} \approx 4.2$ 倍。这迫使模型精确区分正负样本。
 
-\subsubsection{第二步：单个正样本的损失项}
-
-对每个 $i \in \mathcal{P}_s$：
+\paragraph{Step 3e — 计算 InfoNCE 损失。}
+对每个正样本 $i \in \mathcal{P}_s$：
 \begin{equation}
-\ell_i = -\log p_i = -z_i + \log \sum_{u \in \mathcal{C}_s} \exp(z_u).
+\ell_i = -\log p_i = -\frac{r_i^{(s)}}{\tau} + \log \sum_{u \in \mathcal{C}_s} \exp\!\Big(\frac{r_u^{(s)}}{\tau}\Big).
+\end{equation}
+对句子 $s$ 的总损失（多正样本取平均）：
+\begin{equation}
+\mathcal{L}_s = \frac{1}{|\mathcal{P}_s|} \sum_{i \in \mathcal{P}_s} \ell_i.
+\end{equation}
+对整个 batch 的损失：
+\begin{equation}
+\mathcal{L}_{\mathrm{batch}} = \frac{1}{N} \sum_{s=1}^{N} \mathcal{L}_s.
 \end{equation}
 
-\subsubsection{第三步：梯度计算}
+\subsubsection{训练过程：反向传播}
 
+梯度只流过 $W_{\mathrm{proj}}$（$f_j$ 和 $q_s$ 均冻结）。链式法则路径：
+\[
+\mathcal{L} \xrightarrow{\partial/\partial z_j} z_j
+\xrightarrow{\partial/\partial r_j} r_j^{(s)}
+\xrightarrow{\partial/\partial v_j} v_j
+\xrightarrow{\partial/\partial W_{\mathrm{proj}}} W_{\mathrm{proj}}.
+\]
+
+关键梯度：
 \begin{equation}\label{eq:grad}
 \frac{\partial \ell_i}{\partial z_j} = p_j - \mathbf{1}[j = i].
 \end{equation}
@@ -415,27 +487,20 @@ p_j \triangleq \frac{\exp(z_j)}{\sum_{u \in \mathcal{C}_s} \exp(z_u)}.
 &= -\mathbf{1}[j=i] + \frac{e^{z_j}}{\sum_u e^{z_u}} = p_j - \mathbf{1}[j=i].
 \end{align}
 
-\paragraph{直觉解释：}
-\begin{itemize}
-    \item $j=i$（正样本）：梯度 $= p_i - 1 < 0 \Rightarrow$ 推动 $z_i$ 增大（提升相似度）。
-    \item $j \neq i$（负样本）：梯度 $= p_j > 0 \Rightarrow$ 推动 $z_j$ 减小（降低相似度）。
+\paragraph{梯度的物理意义：}
+\begin{itemize}[nosep]
+    \item $j=i$（正样本）：梯度 $= p_i - 1 < 0$，SGD 会\textbf{增大} $z_i$，即增大 $q_s$ 与正样本 token 的余弦相似度（拉近）。
+    \item $j \neq i$（负样本）：梯度 $= p_j > 0$，SGD 会\textbf{减小} $z_j$，即减小 $q_s$ 与负样本 token 的余弦相似度（推远）。
 \end{itemize}
 与 MoCo/SimCLR/CLIP 的实现形式一致（logits$/\tau$ 送入交叉熵）。
 
-\subsubsection{第四步：互信息下界}
+\subsubsection{互信息下界}
 
 根据 CPC（Oord et al., 2018）：
 \begin{equation}
 I(x; c) \geq \log |\mathcal{C}_s| - \mathcal{L}_s.
 \end{equation}
 最优打分函数满足 $f^*(x,c) \propto p(x|c)/p(x)$（密度比）。训练 $W_{\mathrm{proj}}$ 即在冻结特征上学习该密度比的线性近似。
-
-\subsubsection{第五步：多正样本平均}
-
-当 $|\mathcal{P}_s| > 1$ 时：
-\begin{equation}
-\mathcal{L}_s = \frac{1}{|\mathcal{P}_s|} \sum_{i \in \mathcal{P}_s} \ell_i.
-\end{equation}
 
 \begin{remark}[$|\mathcal{P}_s|=0$ 的处理]
 当无正样本时损失未定义（除零）。策略：(1) 从批次中跳过该句；(2) 将最高 IoU 的 token 提升为正样本；(3) 仅用作其它句子的硬负样本。须记录选择并报告 $|\mathcal{P}_s|$ 分布。
