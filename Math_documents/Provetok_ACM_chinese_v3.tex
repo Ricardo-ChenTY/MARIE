@@ -10,6 +10,7 @@
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{caption}
+\usepackage{float}
 \usepackage{fancyvrb}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
@@ -914,11 +915,23 @@ M5 & Holm 校正 & 步降 FWER 控制 & 公式描述 \\
 
 以下表格基于 5K 数据集的 test split（CT-RATE 250 例 + RadGenome-ChestCT 250 例，共 496 个病例、3{,}979 个句子）。外部基线数据引用自各方法的原始论文。
 
+\paragraph{消融链配置说明。}
+消融链按以下顺序逐步叠加模块，每一步仅增加一个组件：
+\begin{itemize}[nosep]
+    \item \textbf{A0}：基线。$W_{\mathrm{proj}}=I$（单位矩阵），纯空间 IoU 路由，不生成句子（直接使用原始 topic）。
+    \item \textbf{A1}：在 A0 基础上训练 $W_{\mathrm{proj}}$（InfoNCE），启用语义 + 空间融合路由。
+    \item \textbf{E1}：在 A1 基础上加入空间过滤（spatial filter）+ 语义重排（semantic rerank）。
+    \item \textbf{B2$'$}：在 E1 基础上加入 Evidence Card v1（SSR 侧别门控 + 深度门控）+ LLM 生成句子。
+    \item \textbf{B2$'$v2}：将 Evidence Card 升级为 v2（更严格的门控条件，不满足时截断 token）。
+    \item \textbf{C2$'$}：在 B2$'$ 基础上加入 LLM Judge（Stage 5），对高违规句子进行 LLM 二次审核。
+    \item \textbf{D2}：在 C2$'$ 基础上加入修复执行器（reroute / despecify）。
+\end{itemize}
+
 %─────────────────────────────────────────────────────────
 \subsection{Table 1：与外部基线的 NLG 质量对比（主表）}
 %─────────────────────────────────────────────────────────
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{与外部基线的报告生成质量对比。基线结果引用自各方法原始论文；ProveTok 使用 5K 划分（\texttt{seed=42}，2000/250/250）。}\label{tab:main_comparison}
 \footnotesize
@@ -944,7 +957,7 @@ RadGenome & \textbf{ProveTok} & ours & \textbf{.506} & \textbf{.660} & \textbf{.
 \subsection{Table 2：消融链——空间一致性与计算开销}
 %─────────────────────────────────────────────────────────
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{消融链（5K test split，496 例，3{,}979 句）。Viol.\% = 句子级违规率；R1/R3/R6b = 各规则违规计数；$C_{\mathrm{LLM}}$ = LLM 调用次数；$N_{\mathrm{reroute}}$ = 重路由次数。}\label{tab:ablation_main}
 \small
@@ -967,9 +980,9 @@ D2     & + Repair executor                & 5.96 & 102 &  86 & 49 & 237 & 4116 &
 \subsection{Table 3：Grounding 质量指标}
 %─────────────────────────────────────────────────────────
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
-\caption{Grounding 指标（5K test split）。Overlap = 均值重叠率；Hit@$k$ = top-$k$ 命中率；RP = Routing Precision；Lat.Acc = 侧别准确率；CF = Citation Faithfulness；DF = Depth Faithfulness。``---'' = 该配置无 LLM 生成，无法计算。}\label{tab:grounding}
+\caption{Grounding 指标（5K test split）。Overlap = 均值重叠率；Hit@$k$ = top-$k$ 命中率；RP = Routing Precision；Lat.Acc = 侧别准确率；CF = Citation Faithfulness；DF = Depth Faithfulness。``---'' = 无 LLM 生成，无法计算。}\label{tab:grounding}
 \small
 \begin{tabular}{@{}l r r r r r r r r@{}}
 \toprule
@@ -990,7 +1003,7 @@ D2     & 0.685 &  76.8 &  96.1 &  99.3 &  75.4 &  97.0 & 80.6 & 97.3 \\
 \subsection{Table 4：消融链 NLG 质量}
 %─────────────────────────────────────────────────────────
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{消融链 NLG 质量（5K test split）。仅有 LLM 生成的配置（B2$'$ 及之后）可计算。}\label{tab:nlg}
 \small
@@ -1010,26 +1023,26 @@ D2               & 0.4738 & 0.6434 & 0.6217 \\
 \subsection{Table 5：统计显著性检验}
 %─────────────────────────────────────────────────────────
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{Bootstrap 95\% CI（$R=5{,}000$，病人级重采样）。}\label{tab:bootstrap_ci}
 \small
-\begin{tabular}{@{}l r r r r@{}}
+\begin{tabular}{@{}l l r r r r@{}}
 \toprule
-\textbf{Config} & \textbf{Viol.\%} & \textbf{CI$_{\mathrm{lo}}$} & \textbf{CI$_{\mathrm{hi}}$} & $n$ \\
+\textbf{Config} & \textbf{Description} & \textbf{Viol.\%} & \textbf{CI$_{\mathrm{lo}}$} & \textbf{CI$_{\mathrm{hi}}$} & $n$ \\
 \midrule
-A0     & 7.59 & 6.84 & 8.35 & 496 \\
-A1     & 5.96 & 5.27 & 6.64 & 496 \\
-E1     & 6.04 & 5.34 & 6.77 & 496 \\
-B2$'$  & 5.85 & 5.14 & 6.60 & 496 \\
-\textbf{B2$'$v2} & \textbf{4.19} & \textbf{3.60} & \textbf{4.83} & \textbf{496} \\
-C2$'$  & 6.00 & 5.25 & 6.79 & 496 \\
-D2     & 5.79 & 5.07 & 6.55 & 496 \\
+A0     & Identity $W$ + Spatial   & 7.59 & 6.84 & 8.35 & 496 \\
+A1     & Trained $W$ + Spatial    & 5.96 & 5.27 & 6.64 & 496 \\
+E1     & + Spatial filter + Rerank & 6.04 & 5.34 & 6.77 & 496 \\
+B2$'$  & + Evidence Card v1       & 5.85 & 5.14 & 6.60 & 496 \\
+\textbf{B2$'$v2} & \textbf{+ Evidence Card v2} & \textbf{4.19} & \textbf{3.60} & \textbf{4.83} & \textbf{496} \\
+C2$'$  & + LLM Judge              & 6.00 & 5.25 & 6.79 & 496 \\
+D2     & + Repair executor        & 5.79 & 5.07 & 6.55 & 496 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{相邻配置 Permutation Test + Holm 校正（$R=5{,}000$，$\alpha=0.05$）。$\Delta$ = Viol.\% 差值（百分点）；$^*$ = Holm 校正后显著。}\label{tab:pairwise}
 \small
@@ -1051,7 +1064,7 @@ C2$'$ $\to$ D2      & 6.00 & 5.79 & $-$0.21 & 0.7059 & 1.0000 &  \\
 \subsection{Table 6：错误分析——按解剖区域的违规分布（B2$'$v2）}
 %─────────────────────────────────────────────────────────
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{B2$'$v2 配置下按解剖关键词的违规分布。仅列出有违规的解剖区域。}\label{tab:anatomy_viol}
 \small
