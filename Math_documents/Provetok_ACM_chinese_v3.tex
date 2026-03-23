@@ -906,4 +906,149 @@ M5 & Holm 校正 & 步降 FWER 控制 & 公式描述 \\
 \bottomrule
 \end{longtable}
 
+%=================================================================
+% 实验结果表格
+%=================================================================
+\newpage
+\section{实验结果}
+
+以下表格基于 5K 数据集（CT-RATE 250 例 + RadGenome-ChestCT 250 例，共 496 个病例、3{,}979 个句子）的 test split 结果。
+
+%─────────────────────────────────────────────────────────
+\subsection{Table 2：消融链主表——空间一致性与计算开销}
+%─────────────────────────────────────────────────────────
+
+\begin{table}[htbp]
+\centering
+\caption{消融链主表（5K test split，496 例，3{,}979 句）。Viol.\% 为句子级违规率；R1/R3/R6b 为各规则违规计数；$C_{\mathrm{LLM}}$ 为 LLM 调用次数；$N_{\mathrm{reroute}}$ 为重路由次数。}\label{tab:ablation_main}
+\small
+\begin{tabular}{@{}l l r r r r r r r@{}}
+\toprule
+\textbf{Config} & \textbf{Description} & \textbf{Viol.\%}$\downarrow$ & \textbf{R1} & \textbf{R3} & \textbf{R6b} & \textbf{Total} & $C_{\mathrm{LLM}}$ & $N_{\mathrm{reroute}}$ \\
+\midrule
+A0     & Identity $W$ + Spatial          & 7.59 &   0 & 237 & 65 & 302 &    0 &   0 \\
+A1     & Trained $W$ + Spatial           & 6.01 &   0 & 174 & 65 & 239 &    0 &   0 \\
+E1     & Spatial filter + Semantic rerank & 6.18 &  95 &  86 & 65 & 246 &    0 &   0 \\
+B2$'$  & + Evidence Card v1              & 6.01 & 109 &  86 & 44 & 239 & 3979 &   0 \\
+\textbf{B2$'$v2} & \textbf{+ Evidence Card v2} & \textbf{4.25} & \textbf{98} & \textbf{23} & \textbf{48} & \textbf{169} & \textbf{3979} & \textbf{0} \\
+C2$'$  & + LLM Judge (Stage 5)           & 6.18 & 113 &  86 & 47 & 246 & 4112 & 128 \\
+D2     & + Repair executor               & 5.96 & 102 &  86 & 49 & 237 & 4116 & 131 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%─────────────────────────────────────────────────────────
+\subsection{Table 3：Grounding 质量指标}
+%─────────────────────────────────────────────────────────
+
+\begin{table}[htbp]
+\centering
+\caption{Grounding 指标（5K test split）。Overlap = 均值重叠率；Hit@$k$ = top-$k$ 命中率；RP = Routing Precision；Lat. Acc = 侧别准确率；CF = Citation Faithfulness；DF = Depth Faithfulness。``---'' 表示该配置无 LLM 生成，无法计算。}\label{tab:grounding}
+\small
+\begin{tabular}{@{}l r r r r r r r r@{}}
+\toprule
+\textbf{Config} & \textbf{Overlap} & \textbf{Hit@1} & \textbf{Hit@4} & \textbf{Hit@8} & \textbf{RP} & \textbf{Lat.Acc} & \textbf{CF} & \textbf{DF} \\
+\midrule
+A0     & 0.931 & 100.0 & 100.0 & 100.0 & 100.0 & 100.0 & ---  & ---  \\
+A1     & 0.931 & 100.0 & 100.0 & 100.0 & 100.0 & 100.0 & ---  & ---  \\
+E1     & 0.685 &  76.8 &  96.1 &  99.3 &  75.4 &  97.2 & ---  & ---  \\
+B2$'$  & 0.685 &  76.8 &  96.1 &  99.3 &  75.4 &  96.9 & 76.9 & 97.3 \\
+\textbf{B2$'$v2} & \textbf{0.689} & \textbf{76.8} & \textbf{95.9} & \textbf{98.2} & \textbf{75.8} & \textbf{97.1} & \textbf{77.6} & \textbf{98.4} \\
+C2$'$  & 0.685 &  76.8 &  96.1 &  99.3 &  75.4 &  96.7 & 81.1 & 97.3 \\
+D2     & 0.685 &  76.8 &  96.1 &  99.3 &  75.4 &  97.0 & 80.6 & 97.3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%─────────────────────────────────────────────────────────
+\subsection{Table 4：NLG 质量指标}
+%─────────────────────────────────────────────────────────
+
+\begin{table}[htbp]
+\centering
+\caption{NLG 质量指标（5K test split）。仅有 LLM 生成的配置（B2$'$ 及之后）可计算。}\label{tab:nlg}
+\small
+\begin{tabular}{@{}l r r r@{}}
+\toprule
+\textbf{Config} & \textbf{BLEU-4} & \textbf{ROUGE-L} & \textbf{METEOR} \\
+\midrule
+B2$'$            & 0.4707 & 0.6425 & 0.6175 \\
+\textbf{B2$'$v2} & \textbf{0.4725} & \textbf{0.6426} & \textbf{0.6190} \\
+C2$'$            & 0.4771 & 0.6431 & 0.6218 \\
+D2               & 0.4738 & 0.6434 & 0.6217 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%─────────────────────────────────────────────────────────
+\subsection{Table 5：统计显著性检验}
+%─────────────────────────────────────────────────────────
+
+\begin{table}[htbp]
+\centering
+\caption{Bootstrap 95\% CI（$R=5{,}000$，病人级重采样）。}\label{tab:bootstrap_ci}
+\small
+\begin{tabular}{@{}l r r r r@{}}
+\toprule
+\textbf{Config} & \textbf{Viol.\%} & \textbf{CI$_{\mathrm{lo}}$} & \textbf{CI$_{\mathrm{hi}}$} & $n$ \\
+\midrule
+A0     & 7.59 & 6.84 & 8.35 & 496 \\
+A1     & 5.96 & 5.27 & 6.64 & 496 \\
+E1     & 6.04 & 5.34 & 6.77 & 496 \\
+B2$'$  & 5.85 & 5.14 & 6.60 & 496 \\
+\textbf{B2$'$v2} & \textbf{4.19} & \textbf{3.60} & \textbf{4.83} & \textbf{496} \\
+C2$'$  & 6.00 & 5.25 & 6.79 & 496 \\
+D2     & 5.79 & 5.07 & 6.55 & 496 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{相邻配置 Permutation Test + Holm 校正（$R=5{,}000$，$\alpha=0.05$）。$\Delta$ 为 Viol.\% 差值（百分点）；$^*$ 表示 Holm 校正后显著。}\label{tab:pairwise}
+\small
+\begin{tabular}{@{}l r r r r r l@{}}
+\toprule
+\textbf{Comparison} & \textbf{Mean$_A$} & \textbf{Mean$_B$} & $\Delta$ & $p$ & $p_{\mathrm{adj}}$ & \textbf{Sig.} \\
+\midrule
+A0 $\to$ A1         & 7.59 & 5.96 & $-$1.63 & 0.0020 & 0.0080 & $^*$ \\
+A1 $\to$ E1         & 5.96 & 6.04 & $+$0.08 & 0.8702 & 1.0000 &  \\
+E1 $\to$ B2$'$      & 6.04 & 5.85 & $-$0.19 & 0.7333 & 1.0000 &  \\
+B2$'$ $\to$ B2$'$v2 & 5.85 & 4.19 & $-$1.65 & 0.0010 & 0.0060 & $^*$ \\
+B2$'$v2 $\to$ C2$'$ & 4.19 & 6.00 & $+$1.80 & 0.0010 & 0.0060 & $^*$ \\
+C2$'$ $\to$ D2      & 6.00 & 5.79 & $-$0.21 & 0.7059 & 1.0000 &  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%─────────────────────────────────────────────────────────
+\subsection{Table 6：错误分析——按解剖区域的违规分布（B2$'$v2）}
+%─────────────────────────────────────────────────────────
+
+\begin{table}[htbp]
+\centering
+\caption{B2$'$v2 配置下按解剖关键词的违规分布。仅列出有违规的解剖区域。}\label{tab:anatomy_viol}
+\small
+\begin{tabular}{@{}l r r r r r r@{}}
+\toprule
+\textbf{Anatomy} & \textbf{Sentences} & \textbf{Violated} & \textbf{Viol.\%} & \textbf{R1} & \textbf{R3} & \textbf{R6b} \\
+\midrule
+bilateral    & 1122 & 67 &  6.0 &  0 & 23 & 45 \\
+right lung   &  198 & 58 & 29.3 & 56 &  0 &  3 \\
+left lung    &  131 & 36 & 27.5 & 36 &  0 &  0 \\
+(no anatomy) & 2293 &  6 &  0.3 &  6 &  0 &  0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{主要发现。}
+\begin{enumerate}[nosep]
+    \item \textbf{B2$'$v2 为最优配置}：Viol.\% = 4.25\%，95\% CI [3.60\%, 4.83\%]，CI 上界与其余配置 CI 下界不重叠，统计显著。
+    \item \textbf{两个显著改进步骤}：A0$\to$A1（训练 $W_{\mathrm{proj}}$，$p_{\mathrm{adj}}=0.008$）和 B2$'$$\to$B2$'$v2（严格证据卡，$p_{\mathrm{adj}}=0.006$）。
+    \item \textbf{R1 集中在 left/right lung}：约 28\% 的 left/right lung 句子触发 R1 侧别违规，说明路由器在肺叶层面的侧别区分仍有改进空间。
+    \item \textbf{R3 集中在 bilateral}：bilateral 句子的 R3 违规率 6.0\%，因为 bilateral 解剖区域跨多个深度层级。
+    \item \textbf{NLG 质量稳定}：BLEU-4 在 0.47--0.48 范围内波动极小，表明验证链不损害生成质量。
+    \item \textbf{C2$'$ 出现回退}：LLM Judge 使 Viol.\% 从 4.19\% 升至 6.18\%（$p_{\mathrm{adj}}=0.006$），但 CF 从 77.6\% 升至 81.1\%，说明 Judge 提升了引用忠实度但引入了更多重路由导致的违规。
+\end{enumerate}
+
 \end{document}
