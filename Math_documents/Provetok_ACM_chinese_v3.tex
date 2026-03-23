@@ -920,21 +920,24 @@ M5 & Holm 校正 & 步降 FWER 控制 & 公式描述 \\
 
 \begin{table}[htbp]
 \centering
-\caption{与外部基线的报告生成质量对比。基线结果引用自各方法原始论文（published protocol）；ProveTok 使用我们的 5K 划分（\texttt{seed=42}，train/valid/test = 2000/250/250）。$\uparrow$ 表示越高越好。}\label{tab:main_comparison}
-\small
+\caption{与外部基线的报告生成质量对比。基线结果引用自各方法原始论文；ProveTok 使用 5K 划分（\texttt{seed=42}，2000/250/250）。}\label{tab:main_comparison}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}l l l r r r@{}}
 \toprule
-\textbf{Dataset} & \textbf{Method} & \textbf{Protocol} & \textbf{BLEU-4}$\uparrow$ & \textbf{METEOR}$\uparrow$ & \textbf{ROUGE-L}$\uparrow$ \\
+\textbf{Dataset} & \textbf{Method} & \textbf{Protocol} & \textbf{B-4}$\uparrow$ & \textbf{MTR}$\uparrow$ & \textbf{R-L}$\uparrow$ \\
 \midrule
-CT-RATE & CT2Rep              & published protocol & 0.172 & 0.173 & 0.243 \\
-CT-RATE & CT-AGRG             & published protocol & 0.172 & 0.196 & 0.280 \\
-CT-RATE & \textbf{ProveTok (ours)} & our split (\texttt{seed=42}, 2000/250/250) & \textbf{0.467} & \textbf{0.603} & \textbf{0.626} \\
+CT-RATE   & CT2Rep      & published & .172 & .173 & .243 \\
+CT-RATE   & CT-AGRG     & published & .172 & .196 & .280 \\
+CT-RATE   & \textbf{ProveTok} & ours & \textbf{.467} & \textbf{.603} & \textbf{.626} \\
 \midrule
-RadGenome-ChestCT & MedVInT  & published protocol & 0.246 & 0.404 & 0.326 \\
-RadGenome-ChestCT & Reg2RG   & published protocol & 0.249 & 0.441 & 0.367 \\
-RadGenome-ChestCT & \textbf{ProveTok (ours)} & our split (\texttt{seed=42}, 2000/250/250) & \textbf{0.506} & \textbf{0.660} & \textbf{0.680} \\
+RadGenome & MedVInT     & published & .246 & .404 & .326 \\
+RadGenome & Reg2RG      & published & .249 & .441 & .367 \\
+RadGenome & \textbf{ProveTok} & ours & \textbf{.506} & \textbf{.660} & \textbf{.680} \\
 \bottomrule
 \end{tabular}
+\\[4pt]
+{\scriptsize B-4 = BLEU-4; MTR = METEOR; R-L = ROUGE-L.}
 \end{table}
 
 %─────────────────────────────────────────────────────────
