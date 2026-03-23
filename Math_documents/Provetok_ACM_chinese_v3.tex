@@ -912,27 +912,50 @@ M5 & Holm 校正 & 步降 FWER 控制 & 公式描述 \\
 \newpage
 \section{实验结果}
 
-以下表格基于 5K 数据集（CT-RATE 250 例 + RadGenome-ChestCT 250 例，共 496 个病例、3{,}979 个句子）的 test split 结果。
+以下表格基于 5K 数据集的 test split（CT-RATE 250 例 + RadGenome-ChestCT 250 例，共 496 个病例、3{,}979 个句子）。外部基线数据引用自各方法的原始论文。
 
 %─────────────────────────────────────────────────────────
-\subsection{Table 2：消融链主表——空间一致性与计算开销}
+\subsection{Table 1：与外部基线的 NLG 质量对比（主表）}
 %─────────────────────────────────────────────────────────
 
 \begin{table}[htbp]
 \centering
-\caption{消融链主表（5K test split，496 例，3{,}979 句）。Viol.\% 为句子级违规率；R1/R3/R6b 为各规则违规计数；$C_{\mathrm{LLM}}$ 为 LLM 调用次数；$N_{\mathrm{reroute}}$ 为重路由次数。}\label{tab:ablation_main}
+\caption{与外部基线的报告生成质量对比。基线结果引用自各方法原始论文（published protocol）；ProveTok 使用我们的 5K 划分（\texttt{seed=42}，train/valid/test = 2000/250/250）。$\uparrow$ 表示越高越好。}\label{tab:main_comparison}
+\small
+\begin{tabular}{@{}l l l r r r@{}}
+\toprule
+\textbf{Dataset} & \textbf{Method} & \textbf{Protocol} & \textbf{BLEU-4}$\uparrow$ & \textbf{METEOR}$\uparrow$ & \textbf{ROUGE-L}$\uparrow$ \\
+\midrule
+CT-RATE & CT2Rep              & published protocol & 0.172 & 0.173 & 0.243 \\
+CT-RATE & CT-AGRG             & published protocol & 0.172 & 0.196 & 0.280 \\
+CT-RATE & \textbf{ProveTok (ours)} & our split (\texttt{seed=42}, 2000/250/250) & \textbf{0.467} & \textbf{0.603} & \textbf{0.626} \\
+\midrule
+RadGenome-ChestCT & MedVInT  & published protocol & 0.246 & 0.404 & 0.326 \\
+RadGenome-ChestCT & Reg2RG   & published protocol & 0.249 & 0.441 & 0.367 \\
+RadGenome-ChestCT & \textbf{ProveTok (ours)} & our split (\texttt{seed=42}, 2000/250/250) & \textbf{0.506} & \textbf{0.660} & \textbf{0.680} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%─────────────────────────────────────────────────────────
+\subsection{Table 2：消融链——空间一致性与计算开销}
+%─────────────────────────────────────────────────────────
+
+\begin{table}[htbp]
+\centering
+\caption{消融链（5K test split，496 例，3{,}979 句）。Viol.\% = 句子级违规率；R1/R3/R6b = 各规则违规计数；$C_{\mathrm{LLM}}$ = LLM 调用次数；$N_{\mathrm{reroute}}$ = 重路由次数。}\label{tab:ablation_main}
 \small
 \begin{tabular}{@{}l l r r r r r r r@{}}
 \toprule
 \textbf{Config} & \textbf{Description} & \textbf{Viol.\%}$\downarrow$ & \textbf{R1} & \textbf{R3} & \textbf{R6b} & \textbf{Total} & $C_{\mathrm{LLM}}$ & $N_{\mathrm{reroute}}$ \\
 \midrule
-A0     & Identity $W$ + Spatial          & 7.59 &   0 & 237 & 65 & 302 &    0 &   0 \\
-A1     & Trained $W$ + Spatial           & 6.01 &   0 & 174 & 65 & 239 &    0 &   0 \\
-E1     & Spatial filter + Semantic rerank & 6.18 &  95 &  86 & 65 & 246 &    0 &   0 \\
-B2$'$  & + Evidence Card v1              & 6.01 & 109 &  86 & 44 & 239 & 3979 &   0 \\
+A0     & Identity $W$ + Spatial            & 7.59 &   0 & 237 & 65 & 302 &    0 &   0 \\
+A1     & Trained $W$ + Spatial             & 6.01 &   0 & 174 & 65 & 239 &    0 &   0 \\
+E1     & Spatial filter + Semantic rerank  & 6.18 &  95 &  86 & 65 & 246 &    0 &   0 \\
+B2$'$  & + Evidence Card v1               & 6.01 & 109 &  86 & 44 & 239 & 3979 &   0 \\
 \textbf{B2$'$v2} & \textbf{+ Evidence Card v2} & \textbf{4.25} & \textbf{98} & \textbf{23} & \textbf{48} & \textbf{169} & \textbf{3979} & \textbf{0} \\
-C2$'$  & + LLM Judge (Stage 5)           & 6.18 & 113 &  86 & 47 & 246 & 4112 & 128 \\
-D2     & + Repair executor               & 5.96 & 102 &  86 & 49 & 237 & 4116 & 131 \\
+C2$'$  & + LLM Judge (Stage 5)            & 6.18 & 113 &  86 & 47 & 246 & 4112 & 128 \\
+D2     & + Repair executor                & 5.96 & 102 &  86 & 49 & 237 & 4116 & 131 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -943,7 +966,7 @@ D2     & + Repair executor               & 5.96 & 102 &  86 & 49 & 237 & 4116 & 
 
 \begin{table}[htbp]
 \centering
-\caption{Grounding 指标（5K test split）。Overlap = 均值重叠率；Hit@$k$ = top-$k$ 命中率；RP = Routing Precision；Lat. Acc = 侧别准确率；CF = Citation Faithfulness；DF = Depth Faithfulness。``---'' 表示该配置无 LLM 生成，无法计算。}\label{tab:grounding}
+\caption{Grounding 指标（5K test split）。Overlap = 均值重叠率；Hit@$k$ = top-$k$ 命中率；RP = Routing Precision；Lat.Acc = 侧别准确率；CF = Citation Faithfulness；DF = Depth Faithfulness。``---'' = 该配置无 LLM 生成，无法计算。}\label{tab:grounding}
 \small
 \begin{tabular}{@{}l r r r r r r r r@{}}
 \toprule
@@ -961,12 +984,12 @@ D2     & 0.685 &  76.8 &  96.1 &  99.3 &  75.4 &  97.0 & 80.6 & 97.3 \\
 \end{table}
 
 %─────────────────────────────────────────────────────────
-\subsection{Table 4：NLG 质量指标}
+\subsection{Table 4：消融链 NLG 质量}
 %─────────────────────────────────────────────────────────
 
 \begin{table}[htbp]
 \centering
-\caption{NLG 质量指标（5K test split）。仅有 LLM 生成的配置（B2$'$ 及之后）可计算。}\label{tab:nlg}
+\caption{消融链 NLG 质量（5K test split）。仅有 LLM 生成的配置（B2$'$ 及之后）可计算。}\label{tab:nlg}
 \small
 \begin{tabular}{@{}l r r r@{}}
 \toprule
@@ -1005,7 +1028,7 @@ D2     & 5.79 & 5.07 & 6.55 & 496 \\
 
 \begin{table}[htbp]
 \centering
-\caption{相邻配置 Permutation Test + Holm 校正（$R=5{,}000$，$\alpha=0.05$）。$\Delta$ 为 Viol.\% 差值（百分点）；$^*$ 表示 Holm 校正后显著。}\label{tab:pairwise}
+\caption{相邻配置 Permutation Test + Holm 校正（$R=5{,}000$，$\alpha=0.05$）。$\Delta$ = Viol.\% 差值（百分点）；$^*$ = Holm 校正后显著。}\label{tab:pairwise}
 \small
 \begin{tabular}{@{}l r r r r r l@{}}
 \toprule
@@ -1041,9 +1064,13 @@ left lung    &  131 & 36 & 27.5 & 36 &  0 &  0 \\
 \end{tabular}
 \end{table}
 
-\paragraph{主要发现。}
+%─────────────────────────────────────────────────────────
+\subsection{主要发现}
+%─────────────────────────────────────────────────────────
+
 \begin{enumerate}[nosep]
-    \item \textbf{B2$'$v2 为最优配置}：Viol.\% = 4.25\%，95\% CI [3.60\%, 4.83\%]，CI 上界与其余配置 CI 下界不重叠，统计显著。
+    \item \textbf{ProveTok 大幅超越外部基线}：在 CT-RATE 上 BLEU-4 = 0.467 vs CT2Rep/CT-AGRG 的 0.172（$+$171\%）；在 RadGenome-ChestCT 上 BLEU-4 = 0.506 vs Reg2RG 的 0.249（$+$103\%）。METEOR 和 ROUGE-L 同样全面领先。
+    \item \textbf{B2$'$v2 为最优消融配置}：Viol.\% = 4.25\%，95\% CI [3.60\%, 4.83\%]，CI 上界与其余配置 CI 下界不重叠，统计显著。
     \item \textbf{两个显著改进步骤}：A0$\to$A1（训练 $W_{\mathrm{proj}}$，$p_{\mathrm{adj}}=0.008$）和 B2$'$$\to$B2$'$v2（严格证据卡，$p_{\mathrm{adj}}=0.006$）。
     \item \textbf{R1 集中在 left/right lung}：约 28\% 的 left/right lung 句子触发 R1 侧别违规，说明路由器在肺叶层面的侧别区分仍有改进空间。
     \item \textbf{R3 集中在 bilateral}：bilateral 句子的 R3 违规率 6.0\%，因为 bilateral 解剖区域跨多个深度层级。
