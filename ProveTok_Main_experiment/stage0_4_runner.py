@@ -13,7 +13,7 @@ from .stage1_swinunetr_encoder import FrozenSwinUNETREncoder
 from .stage2_octree_splitter import AdaptiveOctreeSplitter
 from .stage3_router import Router
 from .stage3c_generator import Stage3cGenerator, despecify_text, drop_depth, drop_laterality
-from .stage4_verifier import Verifier
+from .stage4_verifier import Verifier, parse_laterality
 from .stage5_llm_judge import LLMJudge
 from .token_bank_io import save_token_bank_case
 from .types import BBox3D, EvidenceToken, SentenceOutput
@@ -79,10 +79,14 @@ def run_case_stage0_4(
         q_s = comp.router.text_encoder(plan.topic)
         anatomy_bbox = comp.anatomy_resolver(plan.anatomy_keyword)
         if cfg.router.spatial_filter_semantic_rerank:
+            sentence_lat = parse_laterality(plan.topic)
             scores = comp.router.score_tokens_spatial_filter_semantic_rerank(
                 plan.topic, tokens, anatomy_bbox,
                 tau_iou=cfg.verifier.tau_anatomy_iou,
                 expected_level_range=plan.expected_level_range,
+                sentence_laterality=sentence_lat,
+                x_mid=float(volume.shape[2]) / 2.0,
+                lateral_tolerance=cfg.verifier.lateral_tolerance,
             )
         else:
             scores = comp.router.score_tokens(plan.topic, tokens, anatomy_bbox)

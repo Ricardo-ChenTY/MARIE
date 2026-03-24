@@ -69,11 +69,15 @@ class Router:
         anatomy_bbox: Optional[BBox3D],
         tau_iou: float = 0.04,
         expected_level_range: Optional[tuple] = None,
+        sentence_laterality: Optional[str] = None,
+        x_mid: float = 0.0,
+        lateral_tolerance: float = 0.0,
     ) -> Dict[int, float]:
         """
         E1 routing: hard spatial filter + semantic rerank.
-        1. Filter tokens by IoU ≥ tau_iou (if anatomy_bbox available)
-           and level within expected_level_range (if available).
+        1. Filter tokens by IoU ≥ tau_iou (if anatomy_bbox available),
+           level within expected_level_range (if available),
+           and laterality consistency (if sentence claims left/right).
         2. Rank filtered tokens by semantic score (W_proj cosine).
         3. Assign scores so filtered tokens rank above unfiltered ones.
         """
@@ -90,6 +94,14 @@ class Router:
             if expected_level_range is not None:
                 lo, hi = expected_level_range
                 if not (lo <= t.level <= hi):
+                    passes_filter = False
+            # Laterality hard filter: when sentence claims left/right,
+            # reject tokens on the opposite side. Cross-midline tokens pass.
+            if sentence_laterality in ("left", "right"):
+                tx = (t.bbox.x_min + t.bbox.x_max) / 2.0
+                if sentence_laterality == "left" and tx < x_mid - lateral_tolerance:
+                    passes_filter = False
+                elif sentence_laterality == "right" and tx > x_mid + lateral_tolerance:
                     passes_filter = False
             # Tokens passing filter get score in [1, 2], others in [0, 1)
             # This guarantees any filtered token ranks above any unfiltered one.
