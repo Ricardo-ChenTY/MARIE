@@ -335,7 +335,7 @@ build_evidence_card() 分析 top-k cited token 的空间分布：
 | 效果 | R1=109, R3=86 | R1=98, R3=23 |
 | 配置标志 | strict_laterality=False | strict_laterality=True |
 
-v2 的更严格门控使 R3（深度违规）从 86 降至 23（**-73.3%**），代价仅为 R1 少量增加。
+v2 的更严格门控使 R3（深度违规）从 86 降至 23（**-73.3%**），同时 R1 也从 109 降至 98（**-10.1%**），v2 在两个维度上均优于 v1。
 
 #### 3.5.4 Token 清洗
 
@@ -415,9 +415,9 @@ v2 的更严格门控使 R3（深度违规）从 86 降至 23（**-73.3%**），
 
 **直觉**: 描述弥漫性病变（如 "bilateral pleural effusion"）应该由粗层级 token（level 0–2，覆盖大区域）支持；描述局灶性病变（如 "subcentimeter nodule"）应该由细层级 token（level 2–5，小区域）支持。
 
-#### R4: 体积一致性 (R4_SIZE) — 默认禁用
+#### R4: 体积一致性 (R4_SIZE) — 实验中禁用
 
-**检查**: cited token 的 union bbox 体积应在预期范围内。默认禁用 (r4_disabled = True)，因为 CT 体积中的病变大小变异极大。
+**检查**: cited token 的 union bbox 体积应在预期范围内。代码默认启用 (r4_disabled = False)，但在所有实验中通过 `--r4_disabled` 关闭，因为 CT 体积中的病变大小变异极大，阈值难以校准。
 
 #### R5: 否定一致性 (R5_NEGATION)
 
@@ -929,10 +929,10 @@ python Scripts/evaluate_metrics.py \
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | tau_anatomy_iou | 0.1 | R2 IoU 阈值（实验用 0.04） |
-| r2_min_support_ratio | 1.0 | R2 通过 token 比例 |
+| r2_min_support_ratio | 1.0 | R2 通过 token 比例（实验用 0.8） |
 | r1_min_same_side_ratio | 1.0 | R1 同侧比例（实验用 0.6） |
 | lateral_tolerance | 0.0 | 中线死区宽度 |
-| r4_disabled | False | 禁用 R4 |
+| r4_disabled | False | 禁用 R4（实验用 True） |
 | r5_fallback_lexicon | True | R5 词汇回退 |
 
 ### LLMJudgeConfig (Stage 5)
