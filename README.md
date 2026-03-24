@@ -598,8 +598,8 @@ L = -log [ exp(cos(q_s, W_proj · f̄_s⁺) / τ) / Σ_{j=1}^{N} exp(cos(q_s, W_
 | **E1** | Spatial filter + Rerank | E1 路由模式 | 硬过滤 + 语义重排 | — | — | — |
 | **B2'** | + Evidence Card v1 | v1 证据卡生成 | 同 E1 | v1 (SSR≥0.8) | — | — |
 | **B2'v2** | + Evidence Card v2 | v2 严格门控 | 同 E1 | v2 (SSR≥0.9) | — | — |
-| **C2'** | + LLM Judge | Stage 5 裁判 | 同 E1 | v1 | Qwen-2.5-7B | — |
-| **D2** | + Repair Executor | 完整修复链 | 同 E1 | v1 | Qwen-2.5-7B | 全修复 |
+| **C2'** | + LLM Judge | Stage 5 裁判 | 同 E1 | v1 | Llama-3.1-8B | — |
+| **D2** | + Repair Executor | 完整修复链 | 同 E1 | v1 | Llama-3.1-8B | 全修复 |
 
 **通用参数** (所有配置共享): B = 128, k = 8, τ_IoU = 0.04, λ_spatial = 0.3
 
@@ -835,7 +835,7 @@ python run_mini_experiment.py \
   --out_dir outputs/5k_ablation/B2_evcard_v2 \
   --token_budget_b 128 --k_per_sentence 8 \
   --tau_iou 0.04 --spatial_filter_semantic_rerank \
-  --stage3c_backend huggingface --stage3c_model Qwen/Qwen2.5-7B-Instruct \
+  --stage3c_backend huggingface --stage3c_model meta-llama/Llama-3.1-8B-Instruct \
   --strict_laterality
 
 # D2: 完整流水线
@@ -847,8 +847,8 @@ python run_mini_experiment.py \
   --out_dir outputs/5k_ablation/D2_repair \
   --token_budget_b 128 --k_per_sentence 8 \
   --tau_iou 0.04 --spatial_filter_semantic_rerank \
-  --stage3c_backend huggingface --stage3c_model Qwen/Qwen2.5-7B-Instruct \
-  --llm_judge huggingface --llm_judge_model Qwen/Qwen2.5-7B-Instruct
+  --stage3c_backend huggingface --stage3c_model meta-llama/Llama-3.1-8B-Instruct \
+  --llm_judge huggingface --llm_judge_model meta-llama/Llama-3.1-8B-Instruct
 ```
 
 ### 10.3 训练 W_proj
