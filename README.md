@@ -125,7 +125,7 @@ g_i = σ(-k_gate · (A_i - τ_A))
 
 **文件**: `ProveTok_Main_experiment/stage2_octree_splitter.py`
 
-这是 ProveTok 的核心创新之一。传统方法对 CT 体积使用固定网格划分（如 8×8×8），导致细粒度结构被粗糙表示、均匀区域浪费 token 预算。我们采用**自适应八叉树 (Adaptive Octree)** 实现"重要区域精细分割、平坦区域保持粗粒度"。
+这是 ProveTok 的核心创新之一。传统方法对 CT 体积使用固定网格划分（如 8×8×8），导致细粒度结构被粗糙表示、均匀区域浪费 token 配额。我们采用**自适应八叉树 (Adaptive Octree)** 实现"重要区域精细分割、平坦区域保持粗粒度"。
 
 #### 3.3.1 初始化
 
@@ -174,7 +174,7 @@ while |leaves| < token_budget_B:
        (条件: level < max_depth, voxel_count ≥ min_voxels, S > threshold)
     3. 将 c* 八等分为 8 个子节点
     4. 重新计算所有叶节点的 S_i（因为同层分位数排名会变化）
-    5. 重复直到预算耗尽或无可分裂节点
+    5. 重复直到达到上限或无可分裂节点
 ```
 
 - max_depth = 5: 最深分裂到 2⁵ = 32 每轴，但通常远不会到这一步

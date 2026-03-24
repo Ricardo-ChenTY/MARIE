@@ -43,7 +43,7 @@
 \section{执行摘要}
 %=================================================================
 
-ProveTok v3.0 是一个六阶段流水线，用于生成带句级证据追溯的可验证 3D CT 放射报告。该流水线将 CT 体数据转化为预算约束的\emph{证据 token bank}，通过轻量跨模态路由器将 token 子集路由到每句报告，在 token 门控接口下生成句子（构造性地保证引用正确性），应用规则校验器，并在统计稳健的评估协议下报告结果。
+ProveTok v3.0 是一个六阶段流水线，用于生成带句级证据追溯的可验证 3D CT 放射报告。该流水线将 CT 体数据转化为固定大小的\emph{证据 token bank}，通过轻量跨模态路由器将 token 子集路由到每句报告，在 token 门控接口下生成句子（构造性地保证引用正确性），应用规则校验器，并在统计稳健的评估协议下报告结果。
 
 本文档提供每个阶段（方法 M1--M5）的\textbf{完整数学规范}，包括逐步推导、边界情形分析、单调性/有界性证明，以及统一的符号参考。
 
@@ -65,7 +65,7 @@ $H_i$ & 第 $i$ 个单元的不确定性（熵） \\
 $P_i$ & 第 $i$ 个单元的语义先验分数 \\
 $q(\cdot) \in [0,1]$ & 分位数归一化（按深度层、按病例） \\
 $S_i \in [0,1)$ & 第 $i$ 个单元的综合重要性分数 \\
-$B$ & token 预算（默认 64） \\
+$B$ & token bank 大小（默认 64） \\
 $k$ & 每句 top-$k$ 证据 token（默认 8） \\
 $W_{\mathrm{proj}} \in \RR^{d_t \times d}$ & 可学习线性投影矩阵（路由器） \\
 $v_i \in \RR^{d_t}$ & 投影并归一化后的视觉 token 嵌入 \\
@@ -129,7 +129,7 @@ $\theta_{\mathrm{support}}$ & R2 解剖支持率阈值（默认 0.8） \\
 
 
 %=================================================================
-\section{M1：预算约束的 3D 证据 Token Bank（Stage 0--2）}
+\section{M1：3D 证据 Token Bank 构建（Stage 0--2）}
 %=================================================================
 
 \subsection{Stage 0：伪影风险评分}
@@ -265,8 +265,8 @@ S_i = g_i \cdot \big(\lambda_h \, q(H_i) + \lambda_p \, q(P_i)\big), \quad \lamb
     \item \textbf{初始化：}以整个体数据为单个根单元。
     \item \textbf{选择候选：}在当前叶子中选 $i^* = \arg\max_i S_i$（需超过分裂阈值）。
     \item \textbf{分裂：}将 $i^*$ 细分为 8 个子单元；对每个子 $j$ 计算 $f_j, A_j, g_j, H_j, P_j, S_j$。
-    \item \textbf{预算检查：}若叶子数 $\geq B$，执行 batched top-$B$ + 空间 NMS 裁剪到恰好 $B$ 个 token。
-    \item \textbf{终止：}无候选超过阈值，或预算耗尽。
+    \item \textbf{上限检查：}若叶子数 $\geq B$，执行 batched top-$B$ + 空间 NMS 裁剪到恰好 $B$ 个 token。
+    \item \textbf{终止：}无候选超过阈值，或已达上限 $B$。
 \end{enumerate}
 
 该过程类似于 OctNet 的不平衡八叉树（叶节点存 pooled feature），但以 $S_i$（而非 occupancy）作为分裂准则，将空间分辨率集中在高重要性区域。
@@ -518,7 +518,7 @@ I(x; c) \geq \log |\mathcal{C}_s| - \mathcal{L}_s.
 
 \subsection{Stage 3a：证据规划}
 
-规划器接收粗 token 子集（预算 $B_{\mathrm{plan}} = \min(32, B/4)$），生成结构化计划：有序的句子主题列表，每句附带解剖关键词与目标深度层级。
+规划器接收粗 token 子集（$B_{\mathrm{plan}} = \min(32, B/4)$ 个 token），生成结构化计划：有序的句子主题列表，每句附带解剖关键词与目标深度层级。
 
 \paragraph{输入 / 输出 / 参数来源。}
 \begin{itemize}[nosep]
@@ -840,9 +840,9 @@ Bootstrap CI（$R=5000$，按病人级抽样）和 Holm 步降校正均已在 \t
 \textbf{超参数} & \textbf{默认} & \textbf{文献范围} & \textbf{推荐} & \textbf{消融网格} \\
 \midrule\endhead
 
-Token 预算 $B$ & 64 & Flamingo $\leq 64$; BLIP-2 $=32$ & 128 & $\{32,64,128\}$ \\
+Token bank 大小 $B$ & 64 & Flamingo $\leq 64$; BLIP-2 $=32$ & 128 & $\{32,64,128\}$ \\
 每句 $k$ & 8 & ContextCite top-$k$ & 8 & $\{4,8,16\}$ \\
-规划预算 $B_{\mathrm{plan}}$ & $\min(32,B/4)$ & BLIP-2 32 queries & 32 & $\{0,16,32\}$ \\
+规划 token 数 $B_{\mathrm{plan}}$ & $\min(32,B/4)$ & BLIP-2 32 queries & 32 & $\{0,16,32\}$ \\
 伪影阈值 $\tau_A$ & 0.85 & 临床 SNR/CNR & 0.85 & $\{0.75,0.85,0.90\}$ \\
 门控陡峭度 $k_{\mathrm{gate}}$ & 15 & 工程选择 & 15 & $\{10,15,20\}$ \\
 权重 $(w_e,w_v,w_b)$ & $(0.5,0.3,0.2)$ & 多信号融合 & 默认 & $\pm 0.1$ 扰动 \\

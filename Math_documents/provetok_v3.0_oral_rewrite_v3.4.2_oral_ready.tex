@@ -78,26 +78,19 @@
 % ============================================================
 
 \subsection{What We Do}
-We study 3D CT report generation under an explicit \emph{evidence budget} $B$.
-\textbf{$B$ is the size of a fixed per-volume token bank:} a frozen 3D encoder is run once to construct at most $B$ spatial evidence tokens (each with a 3D bbox + feature), and \emph{all} sentences may only route from this same bank (no additional evidence is retrieved during generation).
-We then enforce \textbf{sentence-level evidence commitment} via \textbf{token-gated generation}:
-each sentence is generated with only a small routed subset of $k\ll B$ tokens, and the routed token IDs become the sentence citations.
+We study 3D CT report generation with \textbf{sentence-level evidence commitment} via \textbf{token-gated generation}.
+A frozen 3D encoder is run once to construct a per-volume token bank of $B$ spatial evidence tokens (each with a 3D bbox + feature), and \emph{all} sentences route from this same bank.
+Each sentence is generated with only a small routed subset of $k\ll B$ tokens, and the routed token IDs become the sentence citations --- turning evidence into a \emph{hard interface}.
 
 \paragraph{Report format (fixed in matched-compute comparisons).}
 We generate a report as a sequence of $L$ sentences.
 In all matched-compute experiments, $L$ is \,\textbf{held fixed} (either the reference sentence count under teacher forcing, or the output of a frozen planning policy) and is \,\emph{not} tuned as a compute-matching knob.
 
-\paragraph{Why an explicit budget matters (oral hook).}
-A central empirical question is whether allocating ``more evidence tokens'' actually increases faithfulness.
-In global-prefix baselines, evidence is merely \emph{available}: the model may ignore the visual channel, and increasing $B$ may \emph{dilute} attention, so faithfulness need not be monotonic in $B$; we therefore measure the faithfulness--budget curve explicitly via controlled budget sweeps.
-We therefore treat $B$ as a first-class variable and sweep it systematically, reporting verifier pass rate and counterfactual sensitivity as a function of $B$ under matched LLM-token compute.
-Token-gated generation turns evidence into a \emph{hard interface}: each sentence must commit to $k$ localized tokens, and these token IDs define the citations.
-
 
 \subsection{Core Claims (Oral-Ready)}
 \begin{itemize}[nosep]
 \item \textbf{C1 (Main thesis): Evidence \emph{commitment} interface.}
-Turn evidence from \emph{available} to \emph{mandatory}: every sentence must \emph{commit} to $k$ localized tokens drawn from a fixed bank of size $B$, and these token IDs are emitted as citations.
+Turn evidence from \emph{available} to \emph{mandatory}: every sentence must \emph{commit} to $k$ localized tokens drawn from a fixed token bank, and these token IDs are emitted as citations.
 At matched LLM-token compute and fixed sentence count $L$, this commitment interface yields substantially higher \emph{audited faithfulness} than global-prefix baselines.
 \item \textbf{C2 (Enabler): Token-gated generation + lightweight router.}
 A minimal router (a single projection matrix) trained from report sentences and coarse weak labels is sufficient to select useful evidence at low overhead; gating ensures the sentence can use \emph{only} the routed tokens.
@@ -105,9 +98,8 @@ A minimal router (a single projection matrix) trained from report sentences and 
 We pair the interface with deterministic verifier rules and factorial counterfactuals (``wrong location'' vs.\ ``wrong content'') that directly test evidence use, and report verifier pass rate and counterfactual sensitivity alongside standard text metrics.
 \end{itemize}
 
-\noindent\textbf{Note on the opening hook.}
-Our core claim does \emph{not} require a strictly non-monotonic faithfulness--budget curve:
-we will characterize the faithfulness--budget trend via controlled $B$ sweeps and, regardless of whether faithfulness saturates or degrades with larger $B$, test whether sentence-level commitment (gating) improves \emph{audited faithfulness} at matched compute and fixed $L$.
+\noindent\textbf{Note.}
+Our core claim is that sentence-level commitment (gating) improves \emph{audited faithfulness} at matched compute and fixed $L$, compared with global-prefix baselines where evidence is optional.
 
 
 \subsection{One-Minute Oral Narrative (Story in 6 Sentences)}
@@ -115,7 +107,7 @@ we will characterize the faithfulness--budget trend via controlled $B$ sweeps an
 \small
 \begin{enumerate}[nosep]
     \item \textbf{Problem:} 3D CT report generators can score well yet remain untrustworthy because evidence is not \emph{explicitly bound} to each sentence.
-    \item \textbf{Observation / question:} with a single global visual prefix, evidence is optional; as we increase the token-bank budget $B$ (tokens exposed for the whole volume), attention may dilute, so we explicitly test whether audited faithfulness is monotonic in $B$.
+    \item \textbf{Observation / question:} with a single global visual prefix, evidence is optional; the model may ignore the visual channel entirely, so faithfulness cannot be audited.
     \item \textbf{Key idea:} replace the global prefix with \textbf{per-sentence top-$k$ token gating} so each sentence conditions on a small, localized evidence set.
     \item \textbf{By construction:} the routed token IDs are the sentence citations (no post-hoc attribution), making the evidence channel externally auditable.
     \item \textbf{Rigorous tests:} we evaluate under matched compute (tokens + a quadratic attention proxy), deterministic verifier rules, and targeted counterfactuals that disentangle ``wrong location'' from ``wrong content''.
@@ -126,7 +118,7 @@ we will characterize the faithfulness--budget trend via controlled $B$ sweeps an
 
 \subsection{Supporting Components (Engineering, Not Primary Novelty)}
 \begin{itemize}[nosep]
-    \item \textbf{Budgeted token bank construction} (adaptive split, artifact gating, boundary caching) --- an efficient way to produce $B$ spatial tokens from frozen features.
+    \item \textbf{Token bank construction} (adaptive split, artifact gating, boundary caching) --- an efficient way to produce $B$ spatial tokens from frozen features.
     \item \textbf{Multi-granularity generation} (overview-to-detail) --- enabled by constraining routing depth; presented as qualitative capability rather than a central claim.
 \end{itemize}
 
@@ -232,8 +224,8 @@ These artifacts do not depend on learned parameters and are cached on disk.
 We run a frozen SwinUNETR 3D encoder once per volume to obtain a dense feature volume $F \in \RR^{768 \times D' \times H' \times W'}$.
 All downstream tokenization and routing operate on these frozen features; no encoder fine-tuning is used in our core claims.
 
-\paragraph{Stage 2: adaptive octree split under budget $B$.}
-Starting from a coarse grid ($d_0{=}2$, giving $4^3{=}64$ initial cells on a $128^3$ volume), we iteratively score cells by a fixed, deterministic rule (uncertainty + boundary + optional semantic prior) and split the highest-scored cells until reaching the evidence budget $B$ (or max depth $d_{\max}{=}5$).
+\paragraph{Stage 2: adaptive octree split.}
+Starting from a coarse grid ($d_0{=}2$, giving $4^3{=}64$ initial cells on a $128^3$ volume), we iteratively score cells by a fixed, deterministic rule (uncertainty + boundary + optional semantic prior) and split the highest-scored cells until reaching the token bank size $B$ (or max depth $d_{\max}{=}5$).
 Each leaf cell is exported as an evidence token with a stable reference, geometry, and pooled feature $\mathbf{f}_i$; we additionally cache a small boundary blend (parameter $\beta{=}0.1$) so tokens retain minimal neighbor context.
 \textbf{All implementation details (soft gate, uncertainty branch, quantile normalization, overlap margin, boundary caching, and export format) are moved to Appendix~\ref{app:stage0-2} to preserve oral-friendly pacing.}
 
@@ -252,13 +244,8 @@ The routed token IDs are the sentence citations \emph{by construction} (no post-
 In a standard visual-prefix setup, all $B$ tokens are prepended to the prompt.
 Evidence becomes \emph{available} but not \emph{mandatory}: the model can generate plausible text while largely ignoring the visual channel, and post-hoc citations can therefore be broad or inconsistent.
 
-\paragraph{Why ``more tokens'' may not help.}
-Simply increasing $B$ does not force evidence usage: with a global prefix, additional tokens can dilute attention and increase shortcutting, so faithfulness may be \emph{non-monotonic} in $B$ (a question we test via budget sweeps).
-Token gating makes the evidence channel \emph{obligatory} at the sentence level, enabling interpretable budget--faithfulness curves.
-
-
 Token-gated generation turns evidence usage into a \emph{hard interface}:
-for each sentence, only a small routed subset of tokens enters the prompt, which forces every sentence to be conditioned on explicit spatial evidence.
+for each sentence, only a small routed subset of $k$ tokens enters the prompt, which forces every sentence to be conditioned on explicit spatial evidence.
 
 \subsubsection{Phase 1: Rule-Based Sentence Planning}
 \label{sec:planning}
@@ -607,7 +594,7 @@ $k_{\mathrm{gate}}$ & $\{10, 15, 20\}$ & Soft gate steepness \\
 \toprule
 Parameter & Default & Search range & Role \\
 \midrule
-$k$ (tokens per sentence) & 8 & $\{4, 8, 16, 32\}$ & Routing budget per sentence \\
+$k$ (tokens per sentence) & 8 & $\{4, 8, 16, 32\}$ & Tokens cited per sentence \\
 $\lambda_{\mathrm{spatial}}$ & 0.3 & $\{0, 0.15, 0.3, 0.5\}$ & Spatial prior strength (standard mode) \\
 $\epsilon$ (tiebreak) & 0.05 & --- & Semantic tiebreaker (anatomy-primary mode) \\
 $\tau_{\mathrm{IoU}}$ (routing filter) & 0.04 & $\{0.02, 0.04, 0.1\}$ & IoU threshold for spatial filter \\
@@ -798,15 +785,15 @@ Figure~\ref{fig:waterfall} visualizes this progression.
 \label{fig:waterfall}
 \end{figure}
 
-\subsection{Budget Sweep: $k$ vs Faithfulness}
+\subsection{Sensitivity to $k$ (Tokens per Sentence)}
 
-Figure~\ref{fig:budget_sweep} shows the effect of varying the routing budget $k$ (tokens cited per sentence) on spatial consistency.
+Figure~\ref{fig:budget_sweep} shows the effect of varying $k$ (tokens cited per sentence) on spatial consistency.
 All configurations use E1 routing (spatial filter + semantic rerank) on 180 cases without LLM generation.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.75\textwidth]{../outputs/paper_figures/fig2_budget_sweep.pdf}
-\caption{Budget sweep: $k$ (tokens per sentence) vs spatial faithfulness.
+\caption{$k$ sensitivity: tokens per sentence vs spatial faithfulness.
 The U-shaped violation rate curve reflects a trade-off: small $k$ causes laterality violations (R1, insufficient coverage), while large $k$ causes depth violations (R3, over-inclusion of coarse tokens).
 Optimal $k^*{=}8$ minimizes total violation rate at 11.41\%.}
 \label{fig:budget_sweep}
