@@ -1024,6 +1024,133 @@ outputs/5k_ablation/B2_evcard_v2/cases/ctrate/case_001/trace.jsonl
 
 ---
 
+## Reproducibility / 复现指南
+
+### 环境要求
+
+| 依赖 | 版本 | 说明 |
+|---|---|---|
+| Python | 3.12 | `environment.yaml` 或 `requirements.txt` |
+| PyTorch | ≥ 2.0 | CUDA 支持 |
+| MONAI | ≥ 1.3 | SwinUNETR 实现 |
+| sentence-transformers | ≥ 3.0 | MiniLM-L6-v2 文本编码 |
+| Llama-3.1-8B-Instruct | — | Stage 3c 生成 + Stage 5 Judge（需 HuggingFace 授权） |
+
+```bash
+# 方式一：conda
+conda env create -f environment.yaml
+conda activate provetok_env_py312
+
+# 方式二：pip
+pip install -r requirements.txt
+```
+
+### 数据准备
+
+**1. CT 体积数据**（需从公开数据集下载）
+
+两个数据集均为公开数据，需 HuggingFace access token：
+
+- **CT-RATE**: [ibrahimhamamci/CT-RATE](https://huggingface.co/datasets/ibrahimhamamci/CT-RATE)
+- **RadGenome-Chest CT**: [ibrahimhamamci/RadGenome-ChestCT](https://huggingface.co/datasets/ibrahimhamamci/RadGenome-ChestCT)
+
+下载脚本详见 [Scripts/DOWNLOAD_GUIDE.md](Scripts/DOWNLOAD_GUIDE.md)。
+
+**2. 实验 Manifest**（已包含在仓库中）
+
+5K 实验的 train/valid/test 划分 manifest 已在仓库中：
+
+```
+manifests/ctrate_5k_{train,valid,test}_manifest.csv    # CT-RATE 2000/250/250
+manifests/radgenome_5k_{train,valid,test}_manifest.csv  # RadGenome 2000/250/250
+```
+
+所有实验使用 test split（250 + 250 = 500 cases）。
+
+**3. SwinUNETR 预训练权重**
+
+SwinUNETR encoder 使用 MONAI 提供的自监督预训练权重（SwinUNETR, feature_size=48, 3D, in_channels=1）。下载后放置于 `checkpoints/swinunetr.ckpt`。
+
+MONAI 官方权重可从 [Project-MONAI/model-zoo](https://github.com/Project-MONAI/model-zoo) 获取，或直接使用 MONAI 的 `download_url` 工具下载。
+
+**4. W_proj 训练权重**（已包含在仓库中）
+
+跨模态投影矩阵 W_proj（384×768, float32）已在仓库中：
+
+```
+outputs/wprojection_5k/w_proj.pt       # PyTorch 格式
+outputs/wprojection_5k/w_proj_best.pt  # 最佳验证 loss 版本
+outputs/wprojection_5k/w_proj.npy      # NumPy 格式
+```
+
+如需重新训练：
+
+```bash
+python train_wprojection.py \
+    --cases_dir outputs_stage0_4/cases \
+    --out_dir outputs_wprojection \
+    --text_encoder semantic \
+    --epochs 50 --lr 1e-3
+```
+
+**5. LLM 模型**
+
+Stage 3c 生成和 Stage 5 Judge 使用 `meta-llama/Llama-3.1-8B-Instruct`。需从 HuggingFace 下载（需授权）并放置于 `models/Llama-3.1-8B-Instruct/`。
+
+### 复现 7 配置消融实验
+
+所有 7 个配置的完整命令封装在一个脚本中：
+
+```bash
+# 运行全部 7 个配置（A0 → A1 → E1 → B2' → B2'v2 → C2' → D2）
+bash Scripts/run_5k_ablation_chain.sh
+
+# 或运行单个配置
+bash Scripts/run_5k_ablation_chain.sh A0
+bash Scripts/run_5k_ablation_chain.sh B2_prime_v2
+```
+
+关键实验参数（与论文一致）：
+
+| 参数 | 值 |
+|---|---|
+| `token_budget_b` | 128 |
+| `k_per_sentence` | 8 |
+| `lambda_spatial` | 0.3 |
+| `tau_iou` | 0.04 |
+| `r2_min_support_ratio` | 0.8 |
+| `r4_disabled` | True |
+| `text_encoder` | sentence-transformers/all-MiniLM-L6-v2 |
+| `LLM` | Llama-3.1-8B-Instruct (bfloat16) |
+| `shuffle_seed` | 42 |
+
+### 生成论文表格和图表
+
+```bash
+# Table 2 (消融) + Figure 1 (waterfall) + Figure 2 (k-sweep)
+python Scripts/generate_table2_and_figures.py
+
+# 统计分析：Bootstrap CI + 置换检验
+python Scripts/run_statistical_analysis.py
+```
+
+### 仓库中已包含的实验结果
+
+为便于验证，所有论文中引用的实验数据均已包含在仓库中：
+
+```
+outputs/5k_ablation/*/summary.csv              # 7 配置的 case-level 结果
+outputs/5k_ablation/*/run_meta.json            # 完整实验参数记录
+outputs/evaluation_5k/metrics_all_conditions.* # NLG 指标 (BLEU, ROUGE-L, METEOR)
+outputs/paper_figures_5k/table2_data.json      # Table 2 源数据
+outputs/paper_figures_5k/table3_grounding_data.json  # Table 3 源数据
+outputs/paper_figures_5k/statistical_analysis/  # Bootstrap CI, 置换检验, 规则分布
+outputs/paper_figures/fig*.pdf                  # 所有论文图表
+outputs/wprojection_5k/train_log.json          # W_proj 训练日志
+```
+
+---
+
 ## 引用
 
 ```bibtex
