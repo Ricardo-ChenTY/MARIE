@@ -1,0 +1,45 @@
+% Ablation table for ProveTok paper
+% Requires: \usepackage{booktabs, pifont}
+% Define in preamble:
+%   \newcommand{\cmark}{\ding{51}}
+%   \newcommand{\xmark}{\ding{55}}
+
+\begin{table*}[t]
+\centering
+\caption{Ablation study on the 5K test set (3{,}979 sentences from 496 patients).
+Viol\% is the sentence-level spatial violation rate (lower is better).
+95\% CI is obtained via patient-level paired bootstrap ($R{=}5{,}000$).
+R1/R3/R6b are per-rule violation counts.
+NLG metrics are reported only for configurations with LLM generation.}
+\label{tab:ablation}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{NoHyper}
+\begin{tabular}{@{}clcccccccc@{}}
+\toprule
+& \textbf{Configuration} & \textbf{Viol\%\,$\downarrow$} & \textbf{95\% CI} & \textbf{R1} & \textbf{R3} & \textbf{R6b} & \textbf{B-4} & \textbf{R-L} & \textbf{MTR} \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{Routing only (no LLM generation)}} \\[2pt]
+A0 & Identity $W$ + anatomy routing           & 7.59 & [6.84, 8.35] &   0 & 237 & 65 & {--} & {--} & {--} \\
+A1 & Trained $W_{\mathrm{proj}}$ + anatomy routing & 6.01\textsuperscript{*} & [5.27, 6.64] &   0 & 174 & 65 & {--} & {--} & {--} \\
+E1 & Spatial filter + semantic rerank          & 6.18 & [5.34, 6.77] &  95 &  86 & 65 & {--} & {--} & {--} \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{+ LLM generation with evidence card}} \\[2pt]
+B2\textquotesingle    & \quad + evidence card v1                  & 6.01 & [5.14, 6.60] & 109 &  86 & 44 & 0.471 & 0.643 & 0.618 \\
+\textbf{B2\textquotesingle v2} & \quad\textbf{+ evidence card v2 (strict)}  & \textbf{4.25}\textsuperscript{*} & \textbf{[3.60, 4.83]} & \textbf{98} & \textbf{23} & \textbf{48} & \textbf{0.473} & \textbf{0.643} & \textbf{0.619} \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{+ Post-hoc verification (from B2\textquotesingle)}} \\[2pt]
+C2\textquotesingle    & \quad + LLM judge                         & 6.18\textsuperscript{\dag} & [5.25, 6.79] & 113 &  86 & 47 & 0.477 & 0.643 & 0.622 \\
+D2   & \quad\quad + repair executor              & 5.96 & [5.07, 6.55] & 102 &  86 & 49 & 0.474 & 0.643 & 0.622 \\
+\bottomrule
+\end{tabular}
+\end{NoHyper}
+
+\vspace{4pt}
+{\footnotesize\raggedright
+\textsuperscript{*}Statistically significant improvement over the preceding row ($p_{\mathrm{adj}}{<}0.01$, Holm-corrected permutation test, $10{,}000$ permutations).\\
+\textsuperscript{\dag}Significant \emph{regression} vs.\ B2\textquotesingle v2 ($p_{\mathrm{adj}}{=}0.006$): the LLM judge occasionally re-routes tokens into new violations.\\
+B2\textquotesingle v2 branches from B2\textquotesingle{} with a stricter evidence card; C2\textquotesingle/D2 branch from B2\textquotesingle{} with post-hoc verification.
+NLG scores are controlled upper bounds under sentence-prompted generation.\par
+}
+\end{table*}
