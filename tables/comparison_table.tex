@@ -1,0 +1,44 @@
+% Comparison table for ProveTok paper
+% Requires: \usepackage{booktabs, amssymb, pifont, multirow}
+% Define in preamble:
+%   \newcommand{\cmark}{\ding{51}}
+%   \newcommand{\xmark}{\ding{55}}
+
+\begin{table*}[t]
+\centering
+\caption{Comparison with existing methods for 3D CT report generation. Citation granularity, evidence
+enforcement, verification, and repair-loop columns characterise provenance capabilities.
+NLG metrics are BLEU-4, ROUGE-L, and METEOR (higher is better).}
+\label{tab:comparison}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lccccccccc@{}}
+\toprule
+\textbf{Method} & \textbf{Input / Data} & \textbf{Citation Gran.} & \textbf{Evid.} & \textbf{Verification} & \textbf{Repair} & \textbf{B-4} & \textbf{R-L} & \textbf{MTR} \\
+\midrule
+% ---- Block A: 3D CT report generation baselines ----
+CT2Rep~\cite{hamamci2024ct2rep}           & 3D CT / CT-RATE   & none            & \xmark & none             & \xmark   & 0.369          & 0.459          & 0.295 \\
+CT-AGRG~\cite{dipiazza2024ctagrg}         & 3D CT / CT-RATE   & none            & \xmark & none             & \xmark   & 0.172          & 0.280          & 0.196 \\
+3D-CT-GPT~\cite{chen2024_3dctgpt}         & 3D CT / CT-RATE   & none            & \xmark & none             & \xmark   & 0.384\textsuperscript{*} & 0.328 & 0.357 \\
+MedVInT~\cite{zhang2024medvint}           & 3D CT / RadGenome  & none            & \xmark & none             & \xmark   & 0.246          & 0.326          & 0.404 \\
+CT2Rep~\cite{hamamci2024ct2rep}           & 3D CT / RadGenome  & none            & \xmark & none             & \xmark   & 0.236          & 0.310          & 0.402 \\
+Reg2RG~\cite{chen2025reg2rg}              & 3D CT / RadGenome  & partial\textsuperscript{\S} & \xmark & none & \xmark   & 0.249          & 0.367          & 0.441 \\
+\midrule
+% ---- Block B: Grounded reference system (2D) ----
+MAIRA-2\textsuperscript{\dag}~\cite{bannur2024maira2} & 2D CXR / MIMIC-CXR & sentence-level  & \xmark & post-hoc scorer  & \xmark   & ---            & ---            & --- \\
+\midrule
+% ---- Block C: Ours ----
+\textbf{ProveTok (B2'v2)} & \textbf{3D CT / CT-RATE}  & \textbf{token citation} & \textbf{\cmark} & \textbf{R1--R6 rules} & \textbf{optional} & \textbf{0.467\textsuperscript{\ddag}} & \textbf{0.626\textsuperscript{\ddag}} & \textbf{0.603\textsuperscript{\ddag}} \\
+\textbf{ProveTok (B2'v2)} & \textbf{3D CT / RadGenome} & \textbf{token citation} & \textbf{\cmark} & \textbf{R1--R6 rules} & \textbf{optional} & \textbf{0.506\textsuperscript{\ddag}} & \textbf{0.680\textsuperscript{\ddag}} & \textbf{0.660\textsuperscript{\ddag}} \\
+\bottomrule
+\end{tabular}
+
+\vspace{4pt}
+{\footnotesize
+\textsuperscript{*}3D-CT-GPT reports BLEU (not BLEU-4); not directly comparable.\\
+\textsuperscript{\dag}MAIRA-2 is a 2D CXR system; included as capability reference only.\\
+\textsuperscript{\ddag}ProveTok operates in a sentence-prompted setting; NLG scores are controlled upper bounds.\\
+\textsuperscript{\S}``partial'': region-level grounding without token-level sentence citation.\\
+RadGenome baseline numbers (MedVInT, CT2Rep, Reg2RG) reproduced by Reg2RG authors~\cite{chen2025reg2rg}.
+}
+\end{table*}
