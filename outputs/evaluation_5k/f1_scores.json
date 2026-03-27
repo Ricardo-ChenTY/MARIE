@@ -1,0 +1,26 @@
+{
+  "B2_evcard_v1": {
+    "n_pairs": 3979,
+    "Precision": 0.66,
+    "Recall": 0.604,
+    "F1": 0.6308
+  },
+  "B2_evcard_v2": {
+    "n_pairs": 3979,
+    "Precision": 0.6532,
+    "Recall": 0.6062,
+    "F1": 0.6288
+  },
+  "C2_evcard_v1_judge": {
+    "n_pairs": 3979,
+    "Precision": 0.6567,
+    "Recall": 0.6078,
+    "F1": 0.6313
+  },
+  "D2_repair": {
+    "n_pairs": 3979,
+    "Precision": 0.6607,
+    "Recall": 0.6073,
+    "F1": 0.6329
+  }
+}
