@@ -1,0 +1,233 @@
+\section{Preliminary and Problem Definition}
+\label{sec:preliminary}
+
+\noindent\textbf{Notations.}
+We denote $\mathbf{V}\in\mathbb{R}^{D\times H\times W}$ as a 3D chest CT volume and
+$\mathcal{Y}=\{y_1,\dots,y_T\}$ is denoted as the output report, where each $y_t$ means one sentence.
+Instead of decoding directly from the full volume, \method{} first converts $\mathbf{V}$ into
+a finite evidence bank
+\begin{equation}
+\mathcal{E}=\{e_i\}_{i=1}^{B},
+\qquad
+e_i=(\mathbf{b}_i,\mathbf{f}_i,\ell_i),
+\label{eq:evidence_bank_new}
+\end{equation}
+where $\mathbf{b}_i\subset\mathbb{R}^3$ is the 3D support of each token $i$, $\mathbf{f}_i\in\mathbb{R}^{d_v}$
+is its exported feature, $\ell_i$ means its octree level, and $B$ represents the global token budget.
+For each sentence step $t$, our model first selects the top-$k$ routed subset and then prune it through the strict evidence cleanup. Therefore, the final cited subset satisfies $\mathcal{C}_t\subseteq\mathcal{E}$ and $|\mathcal{C}_t|\leq k$, where $k$ denotes the per-sentence citation budget. In our main experiments, we choose $k=8$.
+
+
+\noindent\textbf{Problem definition.}
+Our goal is not just to generate a fluent lesion report that we want to make every sentence
+\emph{constructively auditable}. With the given $\mathbf{V}$, our \method{} outputs
+\begin{equation}
+\mathcal{O}=
+\Big\{(y_t,\mathcal{C}_t,\mathcal{V}_t)\Big\}_{t=1}^{T},
+\label{eq:output_objective_new}
+\end{equation}
+where $y_t$ is the generated sentence, $\mathcal{C}_t$ means the committed evidence which is used to generate it,
+and $\mathcal{V}_t$ is verifier output. This formulation differs from conventional CT report generation pipelines such as CT2Rep \cite{hamamci2024ct2rep} and Reg2RG \cite{chen2025reg2rg}, which expose dense visual features as a permissive global prefix. Here, following recent citation-grounded generation work \cite{xia2025reclaim,zhang2025longcite}, each sentence is required to pass through an explicit sentence-to-evidence interface so that the provenance of each textual claim can be inspected and audited.
+
+
+
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Framework Overview}
+\label{sec:framework_overview}
+
+The overview of our \method{} follows a four-stage sentence-to-evidence pipeline.
+ \noindent1.\textit{Budgeted evidence bank construction.} A frozen 3D encoder and an adaptive octree splitter convert the CT volume into a compact set of spatial evidence tokens. \noindent 2.\textit{Sentence planning and cross-modal routing.} For each sentence topic, a lightweight planner extracts the control variables which are required for routing and a router selects the top-$k$ evidence tokens. \noindent 3.\textit{Evidence-Card-constrained generation.} The routed tokens are summarized into a structured \emph{Evidence Card}, which serves as the only evidence interface exposed to the language model for sentence generation. \noindent 4. \textit{Deterministic rule-based auditing.} After generation, a six-rule verifier checks whether the sentence is consistent with its committed evidence. This decomposition separates representation, routing, generation, and auditing. In the main configuration, we instantiate this pipeline as B2\textquotesingle v2.
+
+
+\subsection{Budgeted Volumetric Evidence Bank}
+\label{sec:evidence_bank}
+
+
+This design is motivated by the fact that clinically relevant findings in chest CT are spatially sparse and highly non-uniform. A fixed-grid representation wastes tokens on homogeneous background, while a global visual prefix is difficult to audit. Inspired by hierarchical 3D partitioning in OctNet \cite{riegler2017octnet} and adaptive token selection in TokenLearner \cite{ryoo2021tokenlearner}, we allocate the token budget to regions that are informative or uncertain. \noindent\emph{Stage~0: artifact-aware gating.}
+For each candidate cell $i$, we compute an artifact risk score
+\begin{equation}
+\begin{aligned}
+A_i
+= \operatorname{clip}\!\Big(
+& w_{\mathrm{snr}}\cdot \operatorname{norm}\!\big(\sigma_i/(|\mu_i|+\epsilon)\big) \\
+& + w_{\mathrm{streak}}\cdot \operatorname{norm}(\mathrm{streak}_i) \\
+& + w_{\mathrm{outlier}}\cdot \operatorname{norm}(\mathrm{outlier}_i),
+\,0,\,1
+\Big),
+\end{aligned}
+\label{eq:artifact_new}
+\end{equation}
+where $\mu_i$ and $\sigma_i$ are local statistics of the cell, $\mathrm{streak}_i$ is a directional artifact proxy, and $\mathrm{outlier}_i$ measures robust voxel outliers. The score is converted into a soft gate
+\begin{equation}
+g_i=\sigma\!\big(-\kappa(A_i-\tau_A)\big),
+\label{eq:gate_new}
+\end{equation}
+which down-weights those cells with severe artifacts before any token splitting occurs. \noindent\emph{Stage~1: frozen 3D encoding.}
+We encode $\mathbf{V}$ with a frozen SwinUNETR-style 3D backbone encoder which follows SwinUNETR \cite{hatamizadeh2022swinunetr} and related 3D pretraining and implementation practice \cite{tang2022selfsupervised,cardoso2022monai}. The encoder is used only as a feature extractor, and no backbone parameter is updated during routing or generation. \noindent\emph{Stage~2: adaptive octree splitting and export.} Starting from the initial coarse grid, we recursively split cells under a global budget. Each cell receives an uncertainty score $H_i$ and a semantic prior $P_i$ which are both computed from the cropped encoder feature map. The uncertainty term combines normalized channel entropy, local variance, and boundary response together, while the prior term is the average activation magnitude of cropped feature. After level-wise the quantile normalization, the cell importance score is
+\begin{equation}
+S_i
+=
+g_i\Big[
+\lambda_H\, q_{\ell_i}(H_i)
++
+(1-\lambda_H)\, q_{\ell_i}(P_i)
+\Big].
+\label{eq:importance_new_v2}
+\end{equation}
+Cells with larger $S_i$ are preferentially to be split until token budget $B$ is reached or no further valid split is possible. The implementation recomputes quantile scores after each split, applies optional spatial NMS, and exports each leaf node as a token. Before the final serialization, each selected cell feature is optionally blended with its face-sharing neighbors:
+\begin{align}
+\mathbf{b}_i^{\mathrm{ctx}} &= \frac{1}{|\mathcal{N}(i)|}\sum_{j\in\mathcal{N}(i)} \mathbf{f}_j,
+\label{eq:neighbor_new}\\
+\mathbf{f}_i^{\mathrm{export}} &= (1-\beta)\mathbf{f}_i + \beta \mathbf{b}_i^{\mathrm{ctx}},
+\label{eq:blend_new}
+\end{align}
+This neighbor-aware blending smooths token boundaries without altering the original spatial support of each token, after which final token IDs are assigned according to a stable geometry-based ordering. The resulting evidence bank remains compact while preserving the 3D locality, octree depth, split score, and token-level metadata.
+
+
+\subsection{Sentence Planning and Cross-Modal Routing}
+\label{sec:routing}
+
+Following the constructive citation principle established in Section~\ref{sec:preliminary}, we route evidence \emph{before} generation so that $\mathcal{C}_t$ is a constructive input rather than a post-hoc attachment. The sentence planning is implemented as a lightweight rule-based module. Given a sentence topic or report context, the planner extracts four control variables: an anatomy keyword, an expected octree level range, an expected volume range, and a negation flag. These variables are used by both router and verifier to provide the sentence-wise control signal for the downstream evidence selection. Each token feature is aligned to the text-query space via
+\begin{equation}
+\mathbf{v}_i=
+\frac{\mathbf{W}_{\mathrm{proj}}\mathbf{f}_i^{\mathrm{export}}}
+{\|\mathbf{W}_{\mathrm{proj}}\mathbf{f}_i^{\mathrm{export}}\|_2},
+\label{eq:projection_new_v2}
+\end{equation}
+where $\mathbf{W}_{\mathrm{proj}}$ is a lightweight linear projection. In our base configuration, this matrix degenerates to an identity-style mapping, whereas in the alignment variant it is trained. Sentence queries are encoded with a compact frozen text encoder from the Sentence-BERT family, instantiated in our implementation as sentence-transformers/all-MiniLM-L6-v2 \cite{reimers2019sentencebert,wang2020minilm}. In the validated main configuration, routing follows the spatial-filter semantic-rerank branch. The router first applies three hard filters: IoU overlap with $\Omega^{(t)}$ above a threshold when an anatomy box is available, compatibility with the expected octree level range, and laterality consistency when the sentence explicitly claims a side. Within the filtered set, semantic relevance is computed by
+\begin{equation}
+s_i^{(t)}=\mathbf{q}_t^\top \mathbf{v}_i.
+\label{eq:semantic_main}
+\end{equation}
+The implementation then assigns
+\begin{equation}
+\hat{r}_i^{(t)}=
+\begin{cases}
+1+\dfrac{s_i^{(t)}+1}{2}, & \text{if token } i \text{ passes the spatial filter},\\[6pt]
+\dfrac{s_i^{(t)}+1}{2}, & \text{otherwise},
+\end{cases}
+\label{eq:routing_main_branch}
+\end{equation}
+so that every admissible token always ranks above every inadmissible one. The cited subset is
+\begin{equation}
+\widetilde{\mathcal{C}}_t = \operatorname{TopK}\!\big(\{\hat{r}_i^{(t)}\}_{i=1}^{B},k\big).
+\label{eq:topk_new_v2}
+\end{equation}
+The routed subset can be further pruned by the strict Evidence Card step, which removes opposite-side or out-of-range tokens before the final committed citation $\mathcal{C}_t$ is passed to the generator. We also consider two baseline routing branches for the ablation study. A direct semantic-plus-spatial score combines both signals additively:
+\begin{equation}
+\hat{r}_{i,\mathrm{base}}^{(t)}=
+\mathbf{q}_t^\top \mathbf{v}_i
++
+\lambda_{\mathrm{spatial}}\,\mathrm{IoU}(\mathbf{b}_i,\Omega^{(t)}).
+\label{eq:routing_standard_new}
+\end{equation}
+When $\mathbf{W}_{\mathrm{proj}}$ is untrained, an anatomy-primary branch lets IoU dominate while semantic similarity serves only as a tiebreaker:
+\begin{equation}
+\hat{r}_{i,\mathrm{anat}}^{(t)}=
+\mathrm{IoU}(\mathbf{b}_i,\Omega^{(t)})
++
+\epsilon\,\mathbf{q}_t^\top \mathbf{v}_i,
+\qquad \epsilon \ll 1.
+\label{eq:routing_anatomy_primary_new}
+\end{equation}
+When $\mathbf{W}_{\mathrm{proj}}$ is trainable, we optimize it with an InfoNCE-style contrastive objective \cite{oord2018cpc,chen2020simclr}. In the current implementation, each sentence query is paired with the mean feature of its cited token subset, and other query-token pairs in the batch serve as negatives. This training strategy improves semantic re-ranking without replacing the spatial routing prior.
+
+
+
+\subsection{Evidence-Card-Constrained Sentence Generation}
+\label{sec:evidence_card_generation}
+
+Rather than exposing a permissive global visual context as in prior work~\cite{hamamci2024ct2rep,chen2025reg2rg}, \method{} restricts the generator to spatial attributes that are reliably supported by the routed evidence. For the routed subset $\mathcal{C}_t$, each token is assigned a side label by comparing its bbox center with global midline:
+\begin{equation}
+\mathrm{side}(e_i)=
+\begin{cases}
+\texttt{left}, & x_c > x_{\mathrm{mid}}+\delta,\\
+\texttt{right}, & x_c < x_{\mathrm{mid}}-\delta,\\
+\texttt{cross}, & \text{otherwise},
+\end{cases}
+\label{eq:side_new}
+\end{equation}
+where $x_c$ is the token-center coordinate and $\delta$ is a tolerance band. The same-side ratio is
+\begin{equation}
+\rho_t = \frac{\max(n_L,n_R)}{n_L+n_R},
+\label{eq:ssr_new}
+\end{equation}
+where $n_L$ and $n_R$ count non-cross tokens on the left and right side, respectively. The resulting Evidence Card governs which spatial claims may be verbalized by the generator. In the base version, laterality is allowed when the dominant side is unambiguous. In the strict version, a single-side claim requires $\rho_t \geq 0.9$ and at least two non-cross tokens. A bilateral claim requires at least two tokens on each side. Depth-related terms are treated in a similar way. When an expected octree level range is available, such terms are allowed only if at least $75\%$ of cited tokens fall within that range. Otherwise, they are withheld. If no expected level range is available, the depth remains unconstrained.
+
+In the main configuration, we use Evidence Card~v2, which we refer to as the strict-laterality branch. It distinguishes B2\textquotesingle v2 from B2\textquotesingle{} in the ablation chain. Before generation, the implementation further applies a strict cleanup step that removes opposite-side tokens when dominant side is clear and removes out-of-range tokens when an expected level range is available. The Evidence Card is then rebuilt from the cleaned subset, so the effective number of cited tokens may be smaller than $k$ even though routing is initialized from a top-$k$ proposal.
+
+The language model is conditioned on four inputs: the sentence topic, the previously generated history, a textual token block which is derived from the cleaned cited subset, and the structured Evidence Card. In this way, our generator consumes \emph{textualized spatial evidence} rather than the raw visual features. Let $\mathrm{TokBlock}_t$ denote the textual token block. Sentence $y_t$ is then generated as
+\begin{equation}
+y_t \sim p_{\phi}\!\left(\cdot \mid \mathrm{topic}_t,\mathrm{TokBlock}_t,\mathrm{Card}_t,y_{<t}\right),
+\label{eq:generation_new_v2}
+\end{equation}
+The committed citation therefore remains constructive by the design:
+\begin{equation}
+\hat{\mathcal{E}}_t \equiv \mathcal{C}_t.
+\label{eq:constructive_new_v2}
+\end{equation}
+
+
+
+\subsection{Deterministic Auditing with \textsc{CLEAR}-6}
+\label{sec:clear6}
+
+Constructive citation guarantees that the cited tokens were visible to the model, but it does not guarantee that the resulting sentence is clinically correct. Laterality errors, anatomical mismatches, negation mistakes, and cross-sentence inconsistencies remain common failure modes in medical reporting \cite{lee2015laterality,dhuliawala2023cove}. We therefore introduce \textbf{\textsc{CLEAR}-6} (\textbf{C}linical \textbf{L}ocation-\textbf{E}vidence \textbf{A}lignment \textbf{R}ules), a six-rule deterministic verifier. Given a sentence and its cited evidence, the verifier returns
+\begin{equation}
+\mathrm{Verify}(y_t,\mathcal{C}_t)=\big(\mathcal{V}_t,\mathbf{s}_t\big),
+\label{eq:verify_new_v2}
+\end{equation}
+where $\mathcal{V}_t$ is the set of triggered rules and $\mathbf{s}_t$ stores the rule severity.
+
+
+\ding{172}\emph{R1: laterality consistency.} If the sentence claims \texttt{left} or \texttt{right}, the cited tokens are partitioned into same-side, opposite-side, and cross-midline groups. Our verifier checks the same-side ratio (reusing the $\rho_t$ defined in Eq.~\eqref{eq:ssr_new} with a relaxed audit threshold)
+\begin{equation}
+\mathrm{SSR}_t^{\mathrm{claim}}
+=
+\frac{|\mathrm{same}|}{|\mathrm{same}|+|\mathrm{opp}|},
+\label{eq:r1_new}
+\end{equation}
+and raises a violation when it falls below a threshold. This verifier also supports negation-based exemption and midline-anatomy exemption. \ding{173}\emph{R2: anatomy support.} Each cited token box is compared against the anatomy box resolved from sentence plan. In ratio mode, the verifier requires a sufficient support ratio of tokens whose IoU exceeds the anatomy threshold. In max-IoU mode, it is sufficient for a single token to exceed that threshold. \ding{174}\emph{R3: depth consistency.} If the planner provides an expected octree level range, any cited token outside that range triggers a depth violation. \ding{175}\emph{R4: size plausibility.} If an expected volume range is available, the verifier checks whether the union box of the cited tokens falls within that range.This rule is implemented but disabled in the main configuration.\ding{176}\emph{R5: negation consistency.} For negated sentences, the verifier first checks the token metadata for a negation-conflict signal and then optionally falls back to a lexical positive-finding detector. This rule is partly metadata-driven and partly lexical rather than purely geometric. The fallback lexical branch is disabled in the main configuration. \ding{177}\emph{R6: cross-sentence consistency.} The verifier groups sentences by anatomy keyword and checks two inter-sentence contradictions: R6a laterality conflict and R6b presence/absence conflict.
+
+The codebase also includes an optional Stage-5 repair extension with LLM judging and one-step repair actions such as \texttt{drop\_laterality}, \texttt{drop\_depth}, same-side rerouting, and log-smoothed reranking. This branch is not part of our main configuration. In the main part, \textsc{CLEAR}-6 activates R1, R2, R3, R6a, and R6b, while R4 and the fallback branch of R5 are disabled.
+
+
+
+
+
+In summary, the main configuration of \method{} grounds each sentence through trained cross-modal projection and spatial-filter semantic reranking, generates the sentence under strict Evidence Card~v2 control, and finally audits the result with \textsc{CLEAR}-6. Anatomy-primary routing variants and the no-generation E1 branch are used as baselines, whereas Evidence Card~v1, LLM judging, and Stage-5 repair are treated as ablations or extensions.
+
+
+
+\begin{algorithm}[t]
+\caption{\method{} with \textsc{CLEAR}-6}
+\label{alg:method}
+\small
+\begin{algorithmic}[1]
+\Require CT volume $\mathbf{V}$, report context or sentence topics, token budget $B$, citation budget $k$
+\Ensure Auditable sentence log $\mathcal{O}=\{(y_t,\mathcal{C}_t,\mathcal{V}_t)\}_{t=1}^{T}$
+\State compute artifact-aware cell scores on $\mathbf{V}$
+\State encode $\mathbf{V}$ with a frozen 3D backbone
+\State iteratively split octree cells using Eq.~\eqref{eq:importance_new_v2}
+\State export leaf tokens, optionally apply boundary-aware blending, and obtain
+$\mathcal{E}=\{e_i\}_{i=1}^{B}$
+\State derive sentence plans from the report context or sentence topics
+\For{each sentence step $t$}
+    \State extract the topic, anatomy keyword, expected level range, size prior, and negation flag
+    \State compute routing scores with trained $\mathbf{W}_{\mathrm{proj}}$ and the
+    spatial-filter semantic-rerank branch
+    \State select top-$k$ routed tokens to obtain a preliminary cited subset
+    $\widetilde{\mathcal{C}}_t$
+    \State build Evidence Card~v2 from $\widetilde{\mathcal{C}}_t$
+    \State perform strict same-side and depth cleanup to obtain the final cited subset
+    $\mathcal{C}_t$, and rebuild the final card
+    \State construct the textual token block $\mathrm{TokBlock}_t$ from $\mathcal{C}_t$
+    \State generate sentence $y_t$ conditioned on the topic, $\mathrm{TokBlock}_t$,
+    the Evidence Card, and the history $y_{<t}$
+    \State audit $(y_t,\mathcal{C}_t)$ with \textsc{CLEAR}-6 and record the triggered rules
+    $\mathcal{V}_t$
+\EndFor
+\State \Return $\mathcal{O}$
+\end{algorithmic}
+\end{algorithm}
