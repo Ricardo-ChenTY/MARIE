@@ -76,7 +76,57 @@ We emphasize that these scores are obtained under a sentence-prompted setting wh
 The evaluation protocols also differ across methods (published splits for baselines vs.\ our standardized split for \method{}), so direct NLG comparison should be interpreted with this caveat.
 The primary contribution of \method{} is the auditable evidence interface, not NLG score improvement.
 
-\input{tables/comparison_table}
+% Comparison table for ProveTok paper
+% Requires: \usepackage{booktabs, amssymb, pifont, multirow}
+% Define in preamble:
+%   \newcommand{\cmark}{\ding{51}}
+%   \newcommand{\xmark}{\ding{55}}
+
+\begin{table*}[t]
+\centering
+\caption{Provenance interface taxonomy and shared NLG metrics for 3D CT report generation.
+Left columns classify each method's \emph{output-level} evidence interface;
+right columns report BLEU-4, ROUGE-L, and METEOR where available.
+Prior 3D CT generators may use image features internally but do not expose
+sentence-conditioned cited 3D evidence objects in the output interface;
+rule-based spatial verification and repair are therefore not applicable.}
+\label{tab:comparison}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{NoHyper}
+\begin{tabular}{@{}lclclccccc@{}}
+\toprule
+\textbf{Method} & \textbf{Input / Data} & \textbf{Citation Gran.} & \textbf{Evidence} & \textbf{Verification} & \textbf{Repair} & \textbf{B-4} & \textbf{R-L} & \textbf{MTR} \\
+\midrule
+% ---- Block A: 3D CT report generation baselines ----
+CT2Rep~\cite{hamamci2024ct2rep}           & 3D CT / CT-RATE    & none      & none      & n/a        & n/a    & 0.369          & 0.459          & 0.295 \\
+CT-AGRG~\cite{dipiazza2024ctagrg}         & 3D CT / CT-RATE    & none      & none      & n/a        & n/a    & 0.172          & 0.280          & 0.196 \\
+3D-CT-GPT~\cite{chen2024_3dctgpt}         & 3D CT / CT-RATE    & none      & none      & n/a        & n/a    & 0.384\textsuperscript{*} & 0.328 & 0.357 \\
+MedVInT~\cite{zhang2024medvint}           & 3D CT / RadGenome  & none      & none      & n/a        & n/a    & 0.246          & 0.326          & 0.404 \\
+CT2Rep~\cite{hamamci2024ct2rep}           & 3D CT / RadGenome  & none      & none      & n/a        & n/a    & 0.236          & 0.310          & 0.402 \\
+Reg2RG~\cite{chen2025reg2rg}              & 3D CT / RadGenome  & partial\textsuperscript{\S} & none & n/a  & n/a    & 0.249          & 0.367          & 0.441 \\
+\midrule
+% ---- Block B: Grounded reference system (2D) ----
+MAIRA-2\textsuperscript{\dag}~\cite{bannur2024maira2} & 2D CXR / MIMIC-CXR & sentence-level & optional & post-hoc scorer & none & {--} & {--} & {--} \\
+\midrule
+% ---- Block C: Ours ----
+\textbf{ProveTok}\textsuperscript{\ddag}  & \textbf{3D CT / CT-RATE}  & \textbf{token citation} & \textbf{mandatory} & \textbf{executable rules} & \textbf{closed-loop} & \textbf{0.467\textsuperscript{\P}} & \textbf{0.626\textsuperscript{\P}} & \textbf{0.603\textsuperscript{\P}} \\
+\textbf{ProveTok}\textsuperscript{\ddag}  & \textbf{3D CT / RadGenome} & \textbf{token citation} & \textbf{mandatory} & \textbf{executable rules} & \textbf{closed-loop} & \textbf{0.506\textsuperscript{\P}} & \textbf{0.680\textsuperscript{\P}} & \textbf{0.660\textsuperscript{\P}} \\
+\bottomrule
+\end{tabular}
+\end{NoHyper}
+
+\vspace{4pt}
+{\footnotesize\raggedright
+\textsuperscript{*}3D-CT-GPT reports BLEU (not BLEU-4); not directly comparable.\\
+\textsuperscript{\dag}MAIRA-2 is a 2D CXR system; included as a provenance-interface reference.\\
+\textsuperscript{\ddag}NLG numbers are for the main generation variant B2\textquotesingle v2; the full pipeline additionally supports judge-and-repair stages.\\
+\textsuperscript{\P}Sentence-prompted setting; NLG scores are controlled upper bounds (see Sec.~\ref{tab:ablation}).\\
+\textsuperscript{\S}``partial'': region-level grounding without token-level sentence citation.\\
+``n/a'': no cited evidence objects are exposed in the output; verification and repair cannot be applied at the output level.\\
+RadGenome baseline numbers (MedVInT, CT2Rep, Reg2RG) reproduced by Reg2RG authors~\cite{chen2025reg2rg}.\par
+}
+\end{table*}
 
 
 \subsubsection{Ablation Study}
@@ -107,7 +157,51 @@ This result demonstrates that constructive evidence gating (preventing errors at
 Across all four generation configurations (B2\textquotesingle, B2\textquotesingle v2, C2\textquotesingle, D2), BLEU-4 varies within [0.471, 0.477], ROUGE-L is constant at 0.643, and METEOR ranges from 0.618 to 0.622.
 The maximal BLEU-4 difference is less than 0.006 ($<$1.3\%), confirming that stricter evidence gating does not degrade generation quality.
 
-\input{tables/ablation_table}
+% Ablation table for ProveTok paper
+% Requires: \usepackage{booktabs, pifont}
+% Define in preamble:
+%   \newcommand{\cmark}{\ding{51}}
+%   \newcommand{\xmark}{\ding{55}}
+
+\begin{table*}[t]
+\centering
+\caption{Ablation study on the 5K test set (3{,}979 sentences from 496 patients).
+Viol\% is the sentence-level spatial violation rate (lower is better).
+95\% CI is obtained via patient-level paired bootstrap ($R{=}5{,}000$).
+R1/R3/R6b are per-rule violation counts.
+NLG metrics are reported only for configurations with LLM generation.}
+\label{tab:ablation}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{NoHyper}
+\begin{tabular}{@{}clcccccccc@{}}
+\toprule
+& \textbf{Configuration} & \textbf{Viol\%\,$\downarrow$} & \textbf{95\% CI} & \textbf{R1} & \textbf{R3} & \textbf{R6b} & \textbf{B-4} & \textbf{R-L} & \textbf{MTR} \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{Routing only (no LLM generation)}} \\[2pt]
+A0 & Identity $W$ + anatomy routing           & 7.59 & [6.84, 8.35] &   0 & 237 & 65 & {--} & {--} & {--} \\
+A1 & Trained $W_{\mathrm{proj}}$ + anatomy routing & 6.01\textsuperscript{*} & [5.27, 6.64] &   0 & 174 & 65 & {--} & {--} & {--} \\
+E1 & Spatial filter + semantic rerank          & 6.18 & [5.34, 6.77] &  95 &  86 & 65 & {--} & {--} & {--} \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{+ LLM generation with evidence card}} \\[2pt]
+B2\textquotesingle    & \quad + evidence card v1                  & 6.01 & [5.14, 6.60] & 109 &  86 & 44 & 0.471 & 0.643 & 0.618 \\
+\textbf{B2\textquotesingle v2} & \quad\textbf{+ evidence card v2 (strict)}  & \textbf{4.25}\textsuperscript{*} & \textbf{[3.60, 4.83]} & \textbf{98} & \textbf{23} & \textbf{48} & \textbf{0.473} & \textbf{0.643} & \textbf{0.619} \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{+ Post-hoc verification (from B2\textquotesingle)}} \\[2pt]
+C2\textquotesingle    & \quad + LLM judge                         & 6.18\textsuperscript{\dag} & [5.25, 6.79] & 113 &  86 & 47 & 0.477 & 0.643 & 0.622 \\
+D2   & \quad\quad + repair executor              & 5.96 & [5.07, 6.55] & 102 &  86 & 49 & 0.474 & 0.643 & 0.622 \\
+\bottomrule
+\end{tabular}
+\end{NoHyper}
+
+\vspace{4pt}
+{\footnotesize\raggedright
+\textsuperscript{*}Statistically significant improvement over the preceding row ($p_{\mathrm{adj}}{<}0.01$, Holm-corrected permutation test, $10{,}000$ permutations).\\
+\textsuperscript{\dag}Significant \emph{regression} vs.\ B2\textquotesingle v2 ($p_{\mathrm{adj}}{=}0.006$): the LLM judge occasionally re-routes tokens into new violations.\\
+B2\textquotesingle v2 branches from B2\textquotesingle{} with a stricter evidence card; C2\textquotesingle/D2 branch from B2\textquotesingle{} with post-hoc verification.
+NLG scores are controlled upper bounds under sentence-prompted generation.\par
+}
+\end{table*}
 
 
 \subsubsection{Spatial Grounding and Generalization}
@@ -132,7 +226,50 @@ All configurations achieve laterality accuracy above 96.7\%, indicating that the
 The anatomy-primary baselines (A0, A1) reach 100\% by design.
 B2\textquotesingle v2 maintains 97.1\%, with the remaining 2.9\% attributable to cases where the semantic reranking selects tokens near the midline that are classified as opposite-side by the strict tolerance band ($\delta{=}0$).
 
-\input{tables/grounding_table}
+% Grounding & Citation Faithfulness table for ProveTok paper
+% Requires: \usepackage{booktabs}
+
+\begin{table*}[t]
+\centering
+\caption{Spatial grounding and citation faithfulness across ablation configurations,
+evaluated on 564 grounding-eligible sentences (bilateral cases excluded).
+Overlap is the mean intersection-over-token-volume between cited tokens and the target anatomy.
+Hit@$k$ measures whether at least one of the top-$k$ cited tokens overlaps ${\geq}50\%$ with the anatomy region.
+CF (Citation Faithfulness) and DF (Depth Faithfulness) are only available for LLM-generated configurations.}
+\label{tab:grounding}
+\small
+\setlength{\tabcolsep}{4.5pt}
+\begin{NoHyper}
+\begin{tabular}{@{}clcccccccc@{}}
+\toprule
+& \textbf{Configuration} & \textbf{Overlap} & \textbf{Hit@1} & \textbf{Hit@4} & \textbf{Hit@8} & \textbf{Routing Acc.} & \textbf{Lat.\ Acc.} & \textbf{CF} & \textbf{DF} \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{Routing only (no LLM generation)}} \\[2pt]
+A0 & Identity $W$ + anatomy routing      & .931 & 100.0 & 100.0 & 100.0 & 100.0 & 100.0 & {--} & {--} \\
+A1 & Trained $W_{\mathrm{proj}}$ + anatomy routing & .931 & 100.0 & 100.0 & 100.0 & 100.0 & 100.0 & {--} & {--} \\
+E1 & Spatial filter + semantic rerank     & .685 &  76.8 &  96.1 &  99.3 &  75.4 &  97.2 & {--} & {--} \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{+ LLM generation with evidence card}} \\[2pt]
+B2\textquotesingle    & \quad + evidence card v1              & .685 &  76.8 &  96.1 &  99.3 &  75.4 &  96.9 & 76.9 & 97.3 \\
+\textbf{B2\textquotesingle v2} & \quad\textbf{+ evidence card v2 (strict)} & \textbf{.689} & \textbf{76.8} & \textbf{95.9} & \textbf{98.2} & \textbf{75.8} & \textbf{97.1} & \textbf{77.6} & \textbf{98.4} \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{+ Post-hoc verification (from B2\textquotesingle)}} \\[2pt]
+C2\textquotesingle    & \quad + LLM judge                    & .685 &  76.8 &  96.1 &  99.3 &  75.4 &  96.7 & 81.1 & 97.3 \\
+D2   & \quad\quad + repair executor         & .685 &  76.8 &  96.1 &  99.3 &  75.4 &  97.0 & 80.6 & 97.3 \\
+\bottomrule
+\end{tabular}
+\end{NoHyper}
+
+\vspace{4pt}
+{\footnotesize\raggedright
+\textbf{Routing Acc.}: fraction of cited tokens falling within the correct anatomy region.
+\textbf{Lat.\ Acc.}: fraction of lateralised sentences free of R1 violations.
+\textbf{CF}: generated text laterality agrees with the cited token positions.
+\textbf{DF}: token depth falls within the expected anatomical range ($n{=}1{,}423$).\\
+A0/A1 achieve perfect spatial metrics by construction (anatomy-priority routing returns only in-region tokens);
+the E1+ configurations trade overlap for semantic relevance via cross-modal reranking.\par
+}
+\end{table*}
 
 
 \subsubsection{Qualitative Analysis}
