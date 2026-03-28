@@ -7,50 +7,74 @@
 \subsubsection{Datasets}
 \label{sec:datasets}
 
-We evaluate \method{} on two publicly available 3D chest CT report generation benchmarks.
-\textbf{CT-RATE}~\cite{hamamci2024ct2rep} pairs 3D chest CT volumes with free-text radiology reports.
-\textbf{RadGenome-ChestCT}~\cite{zhang2024radgenome} provides 3D chest CT volumes with structured radiology reports that contain finer-grained anatomical annotations.
-From each dataset, we sample 2{,}500 cases and split them into train/valid/test sets with an 80/10/10 ratio (seed$=$42), yielding 2{,}000/250/250 per source.
-Four corrupted volumes are excluded, leaving 496 test cases (3{,}979 sentences) for the final evaluation.
-All volumes are loaded with SimpleITK, intensity-normalized to $[0,1]$, and trilinearly resized to $128\times128\times128$.
+We evaluate \method{} on two publicly available 3D chest CT benchmarks.
+\textbf{CT-RATE}~\cite{hamamci2024ct2rep} provides 3D chest CT volumes paired with free-text radiology reports covering a broad spectrum of thoracic findings.
+\textbf{RadGenome-ChestCT}~\cite{zhang2024radgenome} extends CT-RATE with structured, anatomically annotated radiology reports, enabling finer-grained spatial evaluation.
+From each dataset we sample 2{,}500 cases and apply an 80/10/10 train/valid/test split (seed$=$42), yielding 2{,}000/250/250 cases per source.
+Four volumes with corrupted NIfTI headers are excluded, resulting in 496 test patients totalling 3{,}979 sentences.
+All volumes are loaded via SimpleITK, intensity-normalized to $[0,1]$, and trilinearly resampled to $128{\times}128{\times}128$ voxels.
+
 
 \subsubsection{Baselines}
 \label{sec:baselines}
 
-We compare \method{} against four published 3D CT report generation methods:
-\textbf{CT2Rep}~\cite{hamamci2024ct2rep}, which decodes reports from a 3D visual prefix;
-\textbf{CT-AGRG}~\cite{dipiazza2024ctagrg}, which augments CT2Rep with anatomical graph reasoning;
-\textbf{3D-CT-GPT}~\cite{chen2024_3dctgpt}, which adapts GPT-style autoregressive decoding to 3D CT;
-and \textbf{Reg2RG}~\cite{chen2025reg2rg}, which introduces region-level grounding for report generation on RadGenome.
-For RadGenome, we additionally include \textbf{MedVInT}~\cite{zhang2024medvint} as reported by the Reg2RG authors.
-As a provenance-interface reference from the 2D domain, we also include \textbf{MAIRA-2}~\cite{bannur2024maira2}, a grounded CXR report generation system.
-None of the 3D baselines expose sentence-conditioned cited evidence objects in their output; rule-based spatial verification and repair are therefore not applicable to them.
+We compare \method{} against representative 3D CT report generation methods that span three design paradigms.
+\textbf{CT2Rep}~\cite{hamamci2024ct2rep} decodes reports from a dense 3D visual prefix in a standard encoder--decoder architecture.
+\textbf{CT-AGRG}~\cite{dipiazza2024ctagrg} augments the visual prefix with an anatomical graph module that incorporates organ-level structural priors.
+\textbf{3D-CT-GPT}~\cite{chen2024_3dctgpt} adapts autoregressive language modeling to 3D CT by projecting volumetric features into the GPT token space.
+\textbf{MedVInT}~\cite{zhang2024medvint} fine-tunes a vision--language model for 3D medical visual question answering and report generation.
+\textbf{Reg2RG}~\cite{chen2025reg2rg} introduces region-level grounding by aligning visual features with anatomical regions, providing the closest existing comparison in terms of spatial awareness.
+As a cross-modal reference from the 2D domain, we include \textbf{MAIRA-2}~\cite{bannur2024maira2}, a grounded chest X-ray report generation system that optionally exposes sentence-level bounding-box evidence.
+
+A key distinction is that none of the 3D baselines produce per-sentence cited evidence objects in their output interface.
+Their evidence (if any) is consumed internally and not exposed for post-hoc spatial verification.
+This makes them structurally incompatible with deterministic verifier rules such as \textsc{CLEAR}-6, and prevents direct measurement of spatial citation faithfulness.
+
 
 \subsubsection{Implementation Details}
 \label{sec:implementation}
 
-The 3D encoder is a frozen SwinUNETR~\cite{hatamizadeh2022swinunetr} (62M parameters, self-supervised pretraining on BTCV~\cite{tang2022selfsupervised}) from MONAI~\cite{cardoso2022monai}, producing 48-dimensional features.
-The text encoder is a frozen all-MiniLM-L6-v2~\cite{reimers2019sentencebert,wang2020minilm} (22M parameters, 384-dimensional embeddings).
-The only trainable component is the cross-modal projection $\mathbf{W}_{\mathrm{proj}}\in\mathbb{R}^{384\times 768}$ (295K parameters), optimized with an InfoNCE objective~\cite{oord2018cpc} using AdamW ($\mathrm{lr}{=}10^{-3}$, cosine schedule, up to 50 epochs, early stopping on validation loss).
-For sentence generation and LLM-based judging, we use Llama-3.1-8B-Instruct~\cite{touvron2023llama} in bfloat16 with temperature$=$0.3 and max tokens$=$256.
-All configurations share the following hyperparameters: token bank size $B{=}128$, per-sentence citation budget $k{=}8$, spatial IoU weight $\lambda_{\mathrm{spatial}}{=}0.3$, boundary blending $\beta{=}0.1$, and input volume size $128^3$.
+\noindent\textbf{Frozen components.}
+The 3D visual encoder is a SwinUNETR~\cite{hatamizadeh2022swinunetr} backbone (62M parameters) from MONAI~\cite{cardoso2022monai}, pretrained on BTCV via self-supervised learning~\cite{tang2022selfsupervised}.
+The encoder produces a 48-dimensional feature map from each $128^3$ input volume and is kept entirely frozen throughout all experiments.
+The text encoder is all-MiniLM-L6-v2~\cite{reimers2019sentencebert,wang2020minilm} (22M parameters, 384-dimensional output), also frozen.
+The octree splitter and sentence planner are deterministic rule-based modules with zero trainable parameters.
 
-We report three layers of evaluation metrics.
-\emph{Spatial consistency}: the sentence-level violation rate (Viol\%), defined as the fraction of sentences with at least one \textsc{CLEAR}-6 violation, along with per-rule counts (R1, R3, R6b).
-\emph{NLG quality}: BLEU-4~\cite{papineni2002bleu}, ROUGE-L~\cite{lin2004rouge}, and METEOR~\cite{banerjee2005meteor} computed at the sentence level.
-\emph{Grounding metrics}: mean anatomy overlap, Hit@$k$, routing accuracy, laterality accuracy, citation faithfulness (CF), and depth faithfulness (DF).
-Statistical significance is assessed via patient-level paired bootstrap (5{,}000 resamples, 95\% CI) with Holm step-down correction for multiple comparisons.
+\noindent\textbf{Trainable component.}
+The only learned parameter is the cross-modal projection matrix $\mathbf{W}_{\mathrm{proj}}\in\mathbb{R}^{384\times 768}$ (295K parameters).
+It is optimized with an InfoNCE contrastive objective~\cite{oord2018cpc} using AdamW (learning rate $10^{-3}$, weight decay $10^{-4}$, cosine annealing schedule) for up to 50 epochs with early stopping (patience$=$10) on validation loss.
+Training data consists of (sentence, cited-token) pairs extracted from anatomy-primary routing traces on the 4{,}000-case training split.
+The projection is initialized orthogonally and converges in approximately 30 minutes on cached token features (no backpropagation through the 3D encoder).
+
+\noindent\textbf{Language model.}
+For sentence generation (Stage~3c) and LLM-based judging (Stage~5a), we use Llama-3.1-8B-Instruct in bfloat16 precision with temperature$=$0.3 and a maximum of 256 generated tokens.
+The LLM receives textualized evidence (token coordinates, octree levels, and Evidence Card constraints) as a structured prompt; no visual embeddings are injected into the LLM hidden states.
+
+\noindent\textbf{Shared hyperparameters.}
+All seven ablation configurations share: token bank size $B{=}128$, per-sentence citation budget $k{=}8$, spatial IoU weight $\lambda_{\mathrm{spatial}}{=}0.3$, routing IoU threshold $\tau_{\mathrm{IoU}}{=}0.04$, boundary blending coefficient $\beta{=}0.1$, R1 same-side threshold $\rho_{\min}{=}0.6$, R2 anatomy support ratio$=$0.8, and input volume size $128^3$.
+R4 (size plausibility) and R5 fallback lexicon are disabled in all reported configurations.
+
+\noindent\textbf{Evaluation metrics.}
+We report three complementary layers of metrics.
+(1)~\emph{Spatial consistency}: the sentence-level violation rate (Viol\%), defined as the fraction of sentences triggering at least one \textsc{CLEAR}-6 rule, together with per-rule violation counts for R1 (laterality), R3 (depth), and R6b (cross-sentence presence conflict).
+Patient-level 95\% confidence intervals are obtained via paired bootstrap ($R{=}5{,}000$ resamples) with Holm step-down correction for multiple comparisons.
+(2)~\emph{NLG quality}: BLEU-4~\cite{papineni2002bleu}, ROUGE-L~\cite{lin2004rouge}, and METEOR~\cite{banerjee2005meteor}, computed at the sentence level and averaged across the test set.
+Since the planner uses reference report sentences as topics, NLG scores serve as \emph{control variables} that verify evidence gating does not degrade text quality, rather than as primary contribution metrics.
+(3)~\emph{Grounding metrics}: mean anatomy overlap (IoU between cited tokens and the target anatomy region), Hit@$k$ (whether at least one top-$k$ token overlaps ${\geq}50\%$ with the anatomy), routing accuracy, laterality accuracy, citation faithfulness (CF: whether the generated laterality claim agrees with cited token positions), and depth faithfulness (DF: whether the generated depth description matches the cited token levels).
 
 
 \subsection{Performance Comparison}
 \label{sec:performance}
 
-Table~\ref{tab:comparison} compares \method{} with published baselines on both datasets.
-We classify each method by its output-level provenance interface: whether the system exposes per-sentence cited evidence objects, whether evidence is mandatory or optional, and whether deterministic verification and closed-loop repair are applicable.
-All existing 3D CT generators use dense visual features internally but do not expose sentence-conditioned cited 3D evidence objects in their output interface.
-\method{} (B2\textquotesingle v2) achieves competitive NLG scores on both datasets while being the only method that provides mandatory token-level citations with executable verification rules.
-We note that the NLG numbers are obtained under sentence-prompted generation (where the planner uses reference sentences as topics), and hence constitute controlled upper bounds rather than free-form generation scores.
-The evaluation protocols also differ between baselines (published splits) and \method{} (our train/valid/test split), so direct NLG comparison requires caution.
+Table~\ref{tab:comparison} positions \method{} relative to existing 3D CT report generators along two axes: the provenance interface taxonomy (left columns) and shared NLG metrics (right columns).
+We classify each method by four output-level properties: citation granularity (whether per-sentence evidence objects are exposed), evidence commitment (whether evidence is mandatory or optional), verification (whether deterministic spatial rules can be applied), and repair (whether closed-loop correction is supported).
+
+All existing 3D CT generators consume visual features internally but do not expose sentence-conditioned cited 3D evidence objects in their output.
+\method{} is the first to provide mandatory token-level citations with executable verification rules for 3D CT report generation.
+On NLG metrics, \method{} (B2\textquotesingle v2) achieves 0.467 BLEU-4 and 0.626 ROUGE-L on CT-RATE, and 0.506 BLEU-4 and 0.680 ROUGE-L on RadGenome.
+We emphasize that these scores are obtained under a sentence-prompted setting where the planner uses reference sentences as generation topics, and hence represent controlled upper bounds.
+The evaluation protocols also differ across methods (published splits for baselines vs.\ our standardized split for \method{}), so direct NLG comparison should be interpreted with this caveat.
+The primary contribution of \method{} is the auditable evidence interface, not NLG score improvement.
 
 \input{tables/comparison_table}
 
@@ -58,17 +82,30 @@ The evaluation protocols also differ between baselines (published splits) and \m
 \subsubsection{Ablation Study}
 \label{sec:ablation}
 
-Table~\ref{tab:ablation} presents the seven-configuration ablation chain evaluated on the full 5K test set (3{,}979 sentences from 496 patients).
-Each configuration adds exactly one component to the previous one, isolating the marginal contribution of each module.
+To isolate the marginal contribution of each pipeline component, we design a seven-configuration ablation chain in which each successive configuration adds exactly one module.
+Table~\ref{tab:ablation} reports the results on the full 5K test set (3{,}979 sentences from 496 patients).
 
-The chain reveals two statistically significant drops in violation rate.
-First, training $\mathbf{W}_{\mathrm{proj}}$ (A0$\to$A1) reduces Viol\% from 7.59\% to 6.01\% ($p_{\mathrm{adj}}{<}0.01$), as the learned projection better aligns visual tokens with sentence queries and reduces depth mismatches (R3: 237$\to$174).
-Second, switching from Evidence Card~v1 to Evidence Card~v2 (B2\textquotesingle$\to$B2\textquotesingle v2) yields the largest single-step improvement, with Viol\% dropping from 6.01\% to 4.25\% ($p_{\mathrm{adj}}{=}0.006$).
-The strict laterality and depth gates of Evidence Card~v2 directly prevent the LLM from generating spatially inconsistent claims, with R3 falling from 86 to 23.
+\noindent\textbf{Routing-only configurations (A0--E1).}
+In the routing-only regime (no LLM generation), the ``sentence text'' is the reference topic itself, and violations arise solely from misalignment between the topic's spatial claims and the routed tokens.
+The baseline A0 (identity $\mathbf{W}_{\mathrm{proj}}$ + anatomy-primary routing) yields Viol\%$=$7.59\% [95\% CI: 6.84, 8.35], with all 237 violations concentrated in R3 (depth).
+Training $\mathbf{W}_{\mathrm{proj}}$ (A0$\to$A1) reduces Viol\% to 6.01\% ($p_{\mathrm{adj}}{<}0.01$), a statistically significant improvement driven by fewer depth mismatches (R3: 237$\to$174).
+Switching to spatial-filter semantic-rerank routing (A1$\to$E1) further halves R3 from 174 to 86, but introduces 95 new R1 (laterality) violations.
+This trade-off arises because semantic reranking promotes tokens with high text--visual similarity regardless of their spatial side, occasionally routing opposite-side tokens when the semantic signal is strong but spatially misleading.
 
-The spatial-filter semantic-rerank routing (A1$\to$E1) shifts the violation profile: R3 drops from 174 to 86 but R1 rises from 0 to 95, reflecting a trade-off between depth and laterality consistency.
-Post-hoc LLM judging (C2\textquotesingle) and repair (D2), branching from B2\textquotesingle{} with Evidence Card~v1, do not improve over B2\textquotesingle v2, confirming that constructive evidence gating outperforms post-hoc correction.
-NLG metrics remain stable across all generation configurations (BLEU-4 varies by $<$0.01), indicating that evidence gating does not degrade text quality.
+\noindent\textbf{LLM generation with evidence card (B2\textquotesingle--B2\textquotesingle v2).}
+Adding LLM generation with Evidence Card~v1 (E1$\to$B2\textquotesingle) slightly reduces R6b cross-sentence conflicts (65$\to$44) as the LLM produces more coherent text than raw reference topics, but R1 rises to 109.
+The key result is the B2\textquotesingle$\to$B2\textquotesingle v2 transition: Evidence Card~v2 (strict laterality gate with $\rho_t{\geq}0.9$, minimum 2 non-cross tokens, plus opposite-side and out-of-range token cleanup) reduces Viol\% from 6.01\% to \textbf{4.25\%} [3.60, 4.83], the largest single-step improvement in the chain ($p_{\mathrm{adj}}{=}0.006$).
+R3 drops sharply from 86 to 23, confirming that the depth cleanup step effectively removes out-of-range tokens before they can influence generation.
+R1 decreases from 109 to 98, consistent with the stricter laterality gate preventing ambiguous side claims.
+
+\noindent\textbf{Post-hoc verification (C2\textquotesingle--D2).}
+The LLM judge (C2\textquotesingle) and repair executor (D2), which branch from B2\textquotesingle{} with Evidence Card~v1, yield Viol\% of 6.18\% and 5.96\% respectively---both \emph{higher} than B2\textquotesingle v2.
+The C2\textquotesingle regression is statistically significant ($p_{\mathrm{adj}}{=}0.006$ vs.\ B2\textquotesingle v2): the judge occasionally re-routes tokens into configurations that introduce new violations.
+This result demonstrates that constructive evidence gating (preventing errors at generation time) is more effective than post-hoc correction (detecting and repairing errors after generation).
+
+\noindent\textbf{NLG stability.}
+Across all four generation configurations (B2\textquotesingle, B2\textquotesingle v2, C2\textquotesingle, D2), BLEU-4 varies within [0.471, 0.477], ROUGE-L is constant at 0.643, and METEOR ranges from 0.618 to 0.622.
+The maximal BLEU-4 difference is less than 0.006 ($<$1.3\%), confirming that stricter evidence gating does not degrade generation quality.
 
 \input{tables/ablation_table}
 
@@ -76,12 +113,24 @@ NLG metrics remain stable across all generation configurations (BLEU-4 varies by
 \subsubsection{Spatial Grounding and Generalization}
 \label{sec:grounding}
 
-Table~\ref{tab:grounding} evaluates spatial grounding quality and citation faithfulness across configurations.
-The anatomy-primary routing baselines (A0, A1) achieve perfect overlap and Hit@$k$ by construction, since IoU directly controls token selection.
-The semantic-rerank configurations (E1 and beyond) trade overlap for semantic relevance: mean overlap decreases from 0.931 to 0.685, but Hit@8 remains above 98\%, indicating that at least one well-localized token is consistently routed.
+Table~\ref{tab:grounding} provides a fine-grained evaluation of spatial grounding quality and citation faithfulness, computed on 564 grounding-eligible sentences (bilateral cases excluded to avoid ambiguous laterality evaluation).
 
-Evidence Card~v2 (B2\textquotesingle v2) improves both citation faithfulness (CF: 76.9\%$\to$77.6\%) and depth faithfulness (DF: 97.3\%$\to$98.4\%) over v1, confirming that the strict cleanup step removes misleading tokens and produces more faithful generations.
-The post-hoc judge (C2\textquotesingle) achieves the highest CF (81.1\%), as the LLM judge selectively confirms and repairs laterality mismatches; however, this comes at the cost of additional LLM calls and a regression in Viol\% (Table~\ref{tab:ablation}).
+\noindent\textbf{Anatomy overlap and hit rate.}
+The anatomy-primary routing baselines (A0, A1) achieve perfect scores across all spatial metrics (overlap$=$0.931, Hit@1$=$100\%, routing accuracy$=$100\%) by construction: IoU directly controls token selection, ensuring all cited tokens fall within the target anatomy region.
+The semantic-rerank configurations (E1 and beyond) trade raw overlap for semantic relevance: mean overlap decreases to 0.685 and Hit@1 drops to 76.8\%.
+However, Hit@8 remains at 98--99\%, confirming that at least one well-localized token is consistently present in the routed set even when semantic reranking promotes semantically relevant but spatially peripheral tokens.
+
+\noindent\textbf{Citation and depth faithfulness.}
+Evidence Card~v2 (B2\textquotesingle v2) improves citation faithfulness from 76.9\% (v1) to 77.6\% and depth faithfulness from 97.3\% to 98.4\%.
+These gains are attributable to the strict cleanup step: removing opposite-side and out-of-range tokens before generation ensures that the Evidence Card constraints presented to the LLM more accurately reflect the cleaned citation set.
+Interestingly, the post-hoc judge (C2\textquotesingle) achieves the highest CF of 81.1\%.
+This is because the LLM judge selectively identifies and repairs the most egregious laterality mismatches, directly improving the agreement between generated text and cited positions.
+However, this CF gain comes at the cost of additional LLM forward passes (4{,}112 vs.\ 3{,}979) and a regression in overall violation rate (Table~\ref{tab:ablation}), reinforcing our finding that constructive gating is preferable to post-hoc repair in the aggregate.
+
+\noindent\textbf{Laterality accuracy.}
+All configurations achieve laterality accuracy above 96.7\%, indicating that the vast majority of lateralised sentences are correctly supported by same-side tokens.
+The anatomy-primary baselines (A0, A1) reach 100\% by design.
+B2\textquotesingle v2 maintains 97.1\%, with the remaining 2.9\% attributable to cases where the semantic reranking selects tokens near the midline that are classified as opposite-side by the strict tolerance band ($\delta{=}0$).
 
 \input{tables/grounding_table}
 
@@ -89,15 +138,26 @@ The post-hoc judge (C2\textquotesingle) achieves the highest CF (81.1\%), as the
 \subsubsection{Qualitative Analysis}
 \label{sec:qualitative}
 
-Figure~\ref{fig:case_study} presents a representative closed-loop audit trace from the test set.
-In this example, the initial generation (Stage~3c) produces a sentence claiming ``left lower lobe'' findings, but \textsc{CLEAR}-6 (Stage~4) detects an R1 laterality violation: the cited tokens are predominantly located on the right side (same-side ratio $=$ 0.25).
-The LLM judge (Stage~5a) confirms the violation and suggests a \texttt{reroute\_same\_side} action.
-The repair executor (Stage~5b) filters the citation set to right-side tokens only, rebuilds the Evidence Card, and regenerates the sentence as ``right lower lobe,'' which passes all verifier rules.
-This example illustrates how the constructive citation interface enables deterministic error detection and targeted repair without modifying the underlying LLM.
+Figure~\ref{fig:case_study} presents a representative closed-loop audit trace from the test set (case \texttt{train\_12976\_b\_1}, CT-RATE, sentence~4), illustrating the three-stage error detection and repair process.
+
+In the initial generation (Stage~3c with B2\textquotesingle{} configuration), the LLM produces the sentence: \emph{``irregular opacity was observed in the left lung lower lobe.''}
+The routed citation set contains 8 tokens, of which 6 are located on the right side of the midline and only 2 on the left (same-side ratio$=$0.25 for the ``left'' claim).
+\textsc{CLEAR}-6 (Stage~4) triggers an R1 laterality violation: the sentence claims ``left'' but the dominant evidence is right-sided.
+
+The LLM judge (Stage~5a) receives the sentence text, the Evidence Card (showing right dominance), and the R1 violation details.
+It confirms the violation and identifies the offending span (``left lung''), suggesting a \texttt{drop\_laterality} repair action with the reasoning that the evidence is right-dominant and the left claim is unsupported.
+
+The repair executor (Stage~5b) applies the suggested action by stripping the laterality keyword from the sentence, producing: \emph{``irregular opacity was observed in the lung lower lobe.''}
+The repaired sentence is re-verified against \textsc{CLEAR}-6 and passes all rules, as no laterality claim remains to conflict with the right-dominant evidence.
+
+This example demonstrates three properties of the constructive citation interface: (1)~spatial errors that would be invisible in a global-prefix system are \emph{deterministically detectable} because each sentence commits to a specific token set; (2)~the structured Evidence Card provides sufficient information for an LLM judge to \emph{diagnose the root cause} (right-dominant evidence vs.\ left claim); and (3)~targeted repair actions can \emph{surgically correct} the error without regenerating the entire report.
 
 \begin{figure}[t]
 \centering
-% \includegraphics[width=\linewidth]{figures/case_study.pdf}
-\caption{Closed-loop audit trace for a laterality violation. Left: initial generation with R1 violation (cited tokens on wrong side). Center: LLM judge confirms the violation. Right: after same-side rerouting and regeneration, the sentence passes all \textsc{CLEAR}-6 rules.}
+% \includegraphics[width=\linewidth]{figures/fig_case_study.pdf}
+\caption{Closed-loop audit trace for repairing an unsupported laterality claim (case \texttt{train\_12976\_b\_1}, sentence~4).
+\textbf{Left} (Stage~4 Verify): cited tokens overlaid on an axial CT slice, coloured by side---teal tokens support the claim, orange tokens are opposite-side. The Evidence Card reports same-side ratio$=$0.25, triggering an R1 violation.
+\textbf{Center} (Stage~5a Judge): the LLM judge marks opposite-side tokens (\textcolor{red}{$\times$}) and confirms the violation, suggesting \texttt{drop\_laterality}.
+\textbf{Right} (Stage~5b Repair): after removing the laterality claim, all tokens are shown in neutral grey; the repaired sentence passes all \textsc{CLEAR}-6 rules.}
 \label{fig:case_study}
 \end{figure}
