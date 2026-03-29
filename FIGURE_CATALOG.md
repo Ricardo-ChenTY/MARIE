@@ -8,23 +8,47 @@ This document records: what each figure shows, where the raw data lives, how to 
 ## Quick Regeneration Commands
 
 ```bash
+# ── Group 1: Pure plotting from hardcoded data (no external deps) ──
+
 # Regenerate all 10 redrawn figures (no GPU, ~10s)
 python Scripts/figures_redraw_v2.py
 # Output: outputs/redrawn_figures/*.{png,pdf}
 
-# Regenerate old-style figures 1-3 + tables from 5K ablation data
+# ── Group 2: Plotting from summary CSVs (no external deps) ──
+
+# Regenerate old-style figures 1-3 + tables + statistical analysis
 python Scripts/generate_table2_and_figures.py --data_dir outputs/5k_ablation
 # Output: outputs/paper_figures_5k/
 
-# Regenerate case study figure (no GPU, reads trace data)
-python Scripts/plot_case_study.py
-# Output: outputs/redrawn_figures/fig_case_study.{png,pdf}
+# ── Group 3: Needs trace.jsonl (in repo) but NO NIfTI volumes ──
 
 # Regenerate counterfactual perturbation data (no GPU, ~2min)
 python Scripts/metric_sanity_check.py \
     --cases_dir outputs/stage0_5_5k/test/cases --max_cases 500
 # Output: outputs/metric_sanity_check.json
+
+# ── Group 4: Needs trace.jsonl (in repo) AND NIfTI volumes (NOT in repo) ──
+# These read CT volumes for slice rendering. Volumes are ~50MB each.
+# Download from CT-RATE dataset or use cached dataset_5k/.
+
+# Case study figure
+python Scripts/plot_case_study.py
+# Output: outputs/redrawn_figures/fig_case_study.{png,pdf}
+# Needs:  dataset_5k/CT-RATE/train/train_12976_b_1.nii.gz
+
+# Qualitative pass/fail examples
+python Scripts/plot_qualitative_case.py
+# Output: outputs/paper_figures/fig4{a,b}_qualitative_{positive,negative}.{pdf,png}
+# Needs:  dataset_5k/CT-RATE/train/train_10754_c_1.nii.gz
+#         dataset_5k/CT-RATE/train/train_9163_a_1.nii.gz
+
+# A0 vs B2'v2 comparative
+python Scripts/plot_comparative_case.py
+# Output: outputs/paper_figures/fig5_comparative.{pdf,png}
+# Needs:  dataset_5k/CT-RATE/train/train_10754_c_1.nii.gz
 ```
+
+**Important:** Groups 1-3 can run anywhere (laptop, CI). Group 4 needs 3 specific NIfTI volumes from CT-RATE — but the PNG/PDF outputs are already in the repo, so you only need the volumes if you want to re-render the CT slices.
 
 ---
 
@@ -144,7 +168,7 @@ r3     = [2, 2, 7, 14, 19, 35, 44]
 |------|-------|
 | **File** | `outputs/redrawn_figures/fig_case_study.{pdf,png}` |
 | **Script** | `Scripts/plot_case_study.py` |
-| **Data source** | `outputs/5k_ablation/D2_repair/cases/train_12976_b_1/trace.jsonl` + `tokens.json` |
+| **Data source** | `outputs/5k_ablation/B2_evcard_v1/cases/ctrate/train_12976_b_1/{trace.jsonl,tokens.json}` + `outputs/5k_ablation/D2_repair/cases/ctrate/train_12976_b_1/{trace.jsonl,tokens.json}` |
 | **LaTeX label** | `\ref{fig:case_study}` |
 | **Placement** | Sec 5.2.6 Qualitative Analysis |
 
@@ -288,6 +312,7 @@ overall     = [8.27, 8.27, 8.27, 12.78, 12.78]
 | **File** | `outputs/paper_figures_5k/statistical_analysis/bootstrap_ci_forest.{pdf,png}` |
 | **Script** | `Scripts/generate_table2_and_figures.py --data_dir outputs/5k_ablation` |
 | **Data source** | `outputs/paper_figures_5k/statistical_analysis/bootstrap_ci.csv` |
+| **Regen needs GPU?** | No |
 
 **What it shows:**
 - Horizontal bar + error bar (95% CI) for each configuration's violation rate.
@@ -306,6 +331,7 @@ overall     = [8.27, 8.27, 8.27, 12.78, 12.78]
 | **File** | `outputs/paper_figures_5k/statistical_analysis/rule_stacked_bar.{pdf,png}` |
 | **Script** | `Scripts/generate_table2_and_figures.py --data_dir outputs/5k_ablation` |
 | **Data source** | `outputs/paper_figures_5k/statistical_analysis/rule_distribution.csv` |
+| **Regen needs GPU?** | No |
 
 **What it shows:**
 - Stacked bar chart of R1 (red) + R3 (blue) + R6b (green) absolute counts across all 7 configurations.
@@ -322,6 +348,7 @@ overall     = [8.27, 8.27, 8.27, 12.78, 12.78]
 | **File** | `outputs/paper_figures_5k/statistical_analysis/anatomy_violations.{pdf,png}` |
 | **Script** | `Scripts/generate_table2_and_figures.py --data_dir outputs/5k_ablation` |
 | **Data source** | `outputs/paper_figures_5k/statistical_analysis/anatomy_violations.csv` |
+| **Regen needs GPU?** | No |
 
 **What it shows:**
 - Per-anatomy violation counts for B2'v2: bilateral (R1~0, R3=23, R6b=45), right lung (R1=55), left lung (R1=36), nan (R1=6).
@@ -336,11 +363,19 @@ overall     = [8.27, 8.27, 8.27, 12.78, 12.78]
 | Item | Value |
 |------|-------|
 | **File** | `outputs/paper_figures/fig5_comparative.{pdf,png}` |
-| **Script** | `Scripts/generate_table2_and_figures.py` (old version, 180-case) |
-| **Data source** | Trace data from `outputs/ablation_routing_2x2/` (180-case) |
+| **Script** | `Scripts/plot_comparative_case.py` |
+| **Data source** | `outputs/5k_ablation/A0_identity_spatial/cases/ctrate/train_10754_c_1/{tokens.json,trace.jsonl}` + `outputs/5k_ablation/B2_evcard_v2/cases/ctrate/train_10754_c_1/{tokens.json,trace.jsonl}` |
+| **Also needs** | CT volume: `dataset_5k/CT-RATE/train/train_10754_c_1.nii.gz` (not in repo, ~50MB) |
+| **Regen needs GPU?** | No, but needs the NIfTI volume on disk |
+
+**Regen command:**
+```bash
+python Scripts/plot_comparative_case.py
+# Output: outputs/paper_figures/fig5_comparative.{pdf,png}
+```
 
 **What it shows:**
-- Side-by-side comparison: case `train_10754_c_1`.
+- Side-by-side comparison: case `train_10754_c_1`, sentence 5.
 - Left (A0): tokens at z=18 (deep), scores 0.050-0.061, triggers R3_DEPTH violation.
 - Right (B2'v2): tokens at z=64 (chest level), scores 1.55-1.58, passes all rules.
 - Both panels show CT axial slice + routed token overlay + Evidence Card.
@@ -354,8 +389,18 @@ overall     = [8.27, 8.27, 8.27, 12.78, 12.78]
 | Item | Value |
 |------|-------|
 | **File** | `outputs/paper_figures/fig4a_qualitative_positive.{pdf,png}` |
-| **Script** | `Scripts/generate_table2_and_figures.py` (old version) |
-| **Data source** | Trace data from `outputs/ablation_routing_2x2/` |
+| **Script** | `Scripts/plot_qualitative_case.py` |
+| **Data source** | `outputs/stage0_5_5k/test/cases/ctrate/train_10754_c_1/{tokens.json,trace.jsonl}` |
+| **Also needs** | CT volume: `dataset_5k/CT-RATE/train/train_10754_c_1.nii.gz` (not in repo) |
+| **Regen needs GPU?** | No, but needs the NIfTI volume on disk |
+
+**Regen command:**
+```bash
+python Scripts/plot_qualitative_case.py
+# Output: outputs/paper_figures/fig4a_qualitative_positive.{pdf,png}
+#         outputs/paper_figures/fig4b_qualitative_negative.{pdf,png}
+#         outputs/paper_figures/fig4_qualitative_combined.{pdf,png}
+```
 
 **What it shows:**
 - CT axial slice (z=96) + routed tokens (k=8) + Generated Output card.
@@ -371,8 +416,10 @@ overall     = [8.27, 8.27, 8.27, 12.78, 12.78]
 | Item | Value |
 |------|-------|
 | **File** | `outputs/paper_figures/fig4b_qualitative_negative.{pdf,png}` |
-| **Script** | `Scripts/generate_table2_and_figures.py` (old version) |
-| **Data source** | Trace data from `outputs/ablation_routing_2x2/` |
+| **Script** | `Scripts/plot_qualitative_case.py` (same script as Fig S10) |
+| **Data source** | `outputs/stage0_5_5k/test/cases/ctrate/train_9163_a_1/{tokens.json,trace.jsonl}` |
+| **Also needs** | CT volume: `dataset_5k/CT-RATE/train/train_9163_a_1.nii.gz` (not in repo) |
+| **Regen needs GPU?** | No, but needs the NIfTI volume on disk |
 
 **What it shows:**
 - CT axial slice (z=112) + routed tokens overlaid.
@@ -391,12 +438,13 @@ overall     = [8.27, 8.27, 8.27, 12.78, 12.78]
 | **File** | `outputs/mediastinum_tau_sweep_50/mediastinum_analysis/mediastinum_tau_curves.png` |
 | **Script** | Pipeline run (requires GPU + full trace recomputation) |
 | **Data source** | `outputs/mediastinum_tau_sweep_50/tau{030,035,040,045,050}/` |
+| **Regen needs GPU?** | Yes (full pipeline rerun) — but the PNG is already generated |
 
 **What it shows:**
 - 4 sub-panels: (a) Mediastinum violation rate, (b) R2_ANATOMY count, (c) LLM judge confirmed count, (d) Mediastinum vs overall violation rate.
 - All zero at τ≤0.04, phase transition to 100%/36/13 at τ=0.045.
 
-**Note:** This is the raw detailed version of Fig S5 (τ_IoU critical point). Fig S5 is the cleaner redrawn version.
+**Note:** This is the raw detailed version of Fig S5 (τ_IoU critical point). Fig S5 is the cleaner redrawn version for the paper.
 
 **Appendix story:** Detailed phase transition analysis showing that mediastinum sentences are the sole driver of the τ_IoU sensitivity.
 
