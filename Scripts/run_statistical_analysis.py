@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ProveTok 5K Ablation — Statistical Significance & Error Analysis
+MARIE 5K Ablation — Statistical Significance & Error Analysis
 
 Generates:
   1. Patient-level paired bootstrap CI (R=5000) for adjacent ablation configs
@@ -34,7 +34,6 @@ ROOT = Path(__file__).resolve().parent.parent
 ABLATION_DIR = ROOT / "outputs" / "5k_ablation"
 OUT_DIR = ROOT / "outputs" / "paper_figures_5k" / "statistical_analysis"
 
-# Ablation chain order (canonical)
 CONFIGS = [
     ("A0", "A0_identity_spatial"),
     ("A1", "A1_trained_spatial"),
@@ -57,9 +56,6 @@ ADJACENT_PAIRS = [
 RULE_IDS = ["R1_LATERALITY", "R2_ANATOMY", "R3_DEPTH", "R6a_PRESENCE", "R6b_PRESENCE"]
 
 
-# ═══════════════════════════════════════════════════════════
-# Data Loading
-# ═══════════════════════════════════════════════════════════
 
 def load_all_traces() -> Dict[str, pd.DataFrame]:
     """Load sentence-level trace data for all configs. Returns {label: DataFrame}."""
@@ -110,9 +106,6 @@ def load_all_traces() -> Dict[str, pd.DataFrame]:
     return all_data
 
 
-# ═══════════════════════════════════════════════════════════
-# Bootstrap CI & Permutation Test
-# ═══════════════════════════════════════════════════════════
 
 def bootstrap_ci(
     values: np.ndarray, R: int = 5000, alpha: float = 0.05, seed: int = 42
@@ -161,9 +154,6 @@ def holm_correction(p_values: List[float], alpha: float = 0.05) -> List[dict]:
     return results
 
 
-# ═══════════════════════════════════════════════════════════
-# 1. Statistical Significance Tests
-# ═══════════════════════════════════════════════════════════
 
 def run_significance_tests(all_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Run paired bootstrap CI + permutation tests for adjacent ablation pairs."""
@@ -171,11 +161,9 @@ def run_significance_tests(all_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     print("  1. Statistical Significance Tests")
     print("=" * 60)
 
-    # Compute patient-level violation rate for each config
     def case_viol_rate(df: pd.DataFrame) -> pd.Series:
         return df.groupby("case_id")["has_violation"].mean()
 
-    # Bootstrap CI for each config
     ci_rows = []
     for label, _ in CONFIGS:
         if label not in all_data:
@@ -195,7 +183,6 @@ def run_significance_tests(all_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
 
     ci_df = pd.DataFrame(ci_rows)
 
-    # Pairwise permutation tests for adjacent configs
     print("\n--- Adjacent Pairwise Comparisons (Viol%) ---")
     perm_rows = []
     p_values = []
@@ -215,7 +202,6 @@ def run_significance_tests(all_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
             "p_value": round(p_val, 4),
         })
 
-    # Holm correction
     if p_values:
         holm_results = holm_correction(p_values)
         for row, hr in zip(perm_rows, holm_results):
@@ -228,9 +214,6 @@ def run_significance_tests(all_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     return ci_df, perm_df
 
 
-# ═══════════════════════════════════════════════════════════
-# 2. Error Analysis
-# ═══════════════════════════════════════════════════════════
 
 def run_error_analysis(all_data: Dict[str, pd.DataFrame]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Violation breakdown by anatomy, rule distribution, per-config."""
@@ -238,7 +221,6 @@ def run_error_analysis(all_data: Dict[str, pd.DataFrame]) -> Tuple[pd.DataFrame,
     print("  2. Error Analysis")
     print("=" * 60)
 
-    # --- 2a. Rule distribution per config ---
     print("\n--- Rule Distribution per Config ---")
     rule_rows = []
     for label, _ in CONFIGS:
@@ -260,7 +242,6 @@ def run_error_analysis(all_data: Dict[str, pd.DataFrame]) -> Tuple[pd.DataFrame,
     rule_df = pd.DataFrame(rule_rows)
     print(rule_df.to_string(index=False))
 
-    # --- 2b. Violation breakdown by anatomy keyword (best config: B2'v2) ---
     print("\n--- Violation Breakdown by Anatomy (B2'v2) ---")
     target_label = "B2'v2"
     if target_label in all_data:
@@ -284,7 +265,6 @@ def run_error_analysis(all_data: Dict[str, pd.DataFrame]) -> Tuple[pd.DataFrame,
     else:
         anat_df = pd.DataFrame()
 
-    # --- 2c. Per-dataset breakdown ---
     print("\n--- Per-Dataset Violation Rates ---")
     ds_rows = []
     for label, _ in CONFIGS:
@@ -302,7 +282,6 @@ def run_error_analysis(all_data: Dict[str, pd.DataFrame]) -> Tuple[pd.DataFrame,
                 "viol_rate_%": round(n_viol / n * 100, 2) if n > 0 else 0,
             })
     ds_df = pd.DataFrame(ds_rows)
-    # Pivot for readability
     if not ds_df.empty:
         pivot = ds_df.pivot_table(
             values="viol_rate_%", index="config", columns="dataset"
@@ -312,9 +291,6 @@ def run_error_analysis(all_data: Dict[str, pd.DataFrame]) -> Tuple[pd.DataFrame,
     return rule_df, anat_df, ds_df
 
 
-# ═══════════════════════════════════════════════════════════
-# 3. D2 Repair Analysis
-# ═══════════════════════════════════════════════════════════
 
 def run_repair_analysis(all_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Analyze D2 repair effectiveness by comparing C2' vs D2 at sentence level."""
@@ -329,24 +305,19 @@ def run_repair_analysis(all_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     c2 = all_data["C2'"].set_index(["dataset", "case_id", "sentence_index"])
     d2 = all_data["D2"].set_index(["dataset", "case_id", "sentence_index"])
 
-    # Align on same sentences
     common = c2.index.intersection(d2.index)
     c2c = c2.loc[common]
     d2c = d2.loc[common]
 
-    # Sentences that had violations in C2'
     had_viol = c2c["has_violation"]
     n_had_viol = int(had_viol.sum())
 
-    # Of those, how many were fixed in D2?
     fixed = had_viol & ~d2c["has_violation"]
     n_fixed = int(fixed.sum())
 
-    # New violations introduced by D2
     new_viol = ~c2c["has_violation"] & d2c["has_violation"]
     n_new = int(new_viol.sum())
 
-    # Per-rule repair
     repair_rows = []
     for rule in ["R1", "R3", "R6b"]:
         c2_count = int(c2c[rule].sum())
@@ -371,9 +342,6 @@ def run_repair_analysis(all_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     return repair_df
 
 
-# ═══════════════════════════════════════════════════════════
-# 4. 180-case vs 5K Consistency
-# ═══════════════════════════════════════════════════════════
 
 def run_consistency_check() -> Optional[pd.DataFrame]:
     """Compare 180-case and 5K ablation results if both are available."""
@@ -381,7 +349,6 @@ def run_consistency_check() -> Optional[pd.DataFrame]:
     print("  4. 180-case vs 5K Consistency")
     print("=" * 60)
 
-    # Load 5K table2 data
     t2_5k_path = ROOT / "outputs" / "paper_figures_5k" / "table2_data.json"
     if not t2_5k_path.exists():
         print("  [SKIP] 5K table2_data.json not found")
@@ -389,7 +356,6 @@ def run_consistency_check() -> Optional[pd.DataFrame]:
     with open(t2_5k_path) as f:
         t2_5k = json.load(f)
 
-    # Load 180 table2 data
     t2_180_path = ROOT / "outputs" / "paper_figures" / "table2_data.json"
     if not t2_180_path.exists():
         print("  [SKIP] 180-case table2_data.json not found")
@@ -397,7 +363,6 @@ def run_consistency_check() -> Optional[pd.DataFrame]:
     with open(t2_180_path) as f:
         t2_180 = json.load(f)
 
-    # Build comparison
     map_5k = {r["label"]: r for r in t2_5k}
     map_180 = {r["label"]: r for r in t2_180}
 
@@ -426,7 +391,6 @@ def run_consistency_check() -> Optional[pd.DataFrame]:
     comp_df = pd.DataFrame(rows)
     print(comp_df.to_string(index=False))
 
-    # Rank correlation
     if len(comp_df) >= 3:
         from scipy import stats
         tau, p_tau = stats.kendalltau(comp_df["viol_180"], comp_df["viol_5k"])
@@ -439,9 +403,6 @@ def run_consistency_check() -> Optional[pd.DataFrame]:
     return comp_df
 
 
-# ═══════════════════════════════════════════════════════════
-# Plots
-# ═══════════════════════════════════════════════════════════
 
 def plot_ci_forest(ci_df: pd.DataFrame, out_dir: Path) -> None:
     """Forest plot of bootstrap CIs for each config's violation rate."""
@@ -518,30 +479,24 @@ def plot_anatomy_violations(anat_df: pd.DataFrame, out_dir: Path) -> None:
     print(f"  [saved] anatomy_violations.pdf/.png")
 
 
-# ═══════════════════════════════════════════════════════════
-# Main
-# ═══════════════════════════════════════════════════════════
 
 def main():
-    print("ProveTok 5K — Statistical Analysis & Error Breakdown")
+    print("MARIE 5K — Statistical Analysis & Error Breakdown")
     print(f"Data: {ABLATION_DIR}")
     print(f"Output: {OUT_DIR}\n")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Load all trace data
     print("Loading traces...")
     all_data = load_all_traces()
     if not all_data:
         sys.exit("ERROR: No data loaded")
 
-    # 1. Statistical significance
     ci_df, perm_df = run_significance_tests(all_data)
     ci_df.to_csv(OUT_DIR / "bootstrap_ci.csv", index=False)
     perm_df.to_csv(OUT_DIR / "pairwise_permutation.csv", index=False)
     print(f"  [saved] bootstrap_ci.csv, pairwise_permutation.csv")
 
-    # 2. Error analysis
     rule_df, anat_df, ds_df = run_error_analysis(all_data)
     rule_df.to_csv(OUT_DIR / "rule_distribution.csv", index=False)
     if not anat_df.empty:
@@ -549,25 +504,21 @@ def main():
     ds_df.to_csv(OUT_DIR / "per_dataset_violations.csv", index=False)
     print(f"  [saved] rule_distribution.csv, anatomy_violations.csv, per_dataset_violations.csv")
 
-    # 3. D2 Repair analysis
     repair_df = run_repair_analysis(all_data)
     if not repair_df.empty:
         repair_df.to_csv(OUT_DIR / "d2_repair_analysis.csv", index=False)
         print(f"  [saved] d2_repair_analysis.csv")
 
-    # 4. 180 vs 5K consistency
     comp_df = run_consistency_check()
     if comp_df is not None:
         comp_df.to_csv(OUT_DIR / "consistency_180_vs_5k.csv", index=False)
         print(f"  [saved] consistency_180_vs_5k.csv")
 
-    # Plots
     print("\nGenerating plots...")
     plot_ci_forest(ci_df, OUT_DIR)
     plot_rule_stacked_bar(rule_df, OUT_DIR)
     plot_anatomy_violations(anat_df, OUT_DIR)
 
-    # Summary JSON
     summary = {
         "n_configs": len(all_data),
         "n_cases_per_config": {label: int(df["case_id"].nunique()) for label, df in all_data.items()},
@@ -588,3 +539,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/data/ProveTok_ACM"
+ROOT="/data/MARIE"
 OUT="${ROOT}/outputs/stage0_5_llama_50"
 CACHE_ROOT="${ROOT}/.cache"
 HF_HOME_DIR="${ROOT}/.hf"
@@ -20,7 +20,7 @@ export TRANSFORMERS_CACHE="${CACHE_ROOT}/huggingface/transformers"
 export SENTENCE_TRANSFORMERS_HOME="${CACHE_ROOT}/sentence_transformers"
 
 source "${ROOT}/miniconda3/etc/profile.d/conda.sh"
-conda activate "${ROOT}/miniconda3/envs/provetok"
+conda activate "${ROOT}/miniconda3/envs/MARIE"
 
 rm -rf "${OUT}"
 mkdir -p "${OUT}"
@@ -68,3 +68,4 @@ python "${ROOT}/validate_stage0_4_outputs.py" \
   --datasets ctrate,radgenome \
   --expected_cases_map ctrate=50,radgenome=50 \
   --save_report "${OUT}/validation_report.json" 2>&1 | tee -a "${OUT}/run.log"
+

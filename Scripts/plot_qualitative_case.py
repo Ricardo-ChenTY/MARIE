@@ -32,7 +32,6 @@ OUT_DIR = ROOT / "outputs" / "paper_figures"
 CASES_ROOT = ROOT / "outputs" / "stage0_5_5k" / "test" / "cases"
 VOLUME_ROOT = ROOT / "dataset_5k" / "CT-RATE" / "train"
 
-# ── Case definitions ──
 POSITIVE_CASE = {"dataset": "ctrate", "case_id": "train_10754_c_1"}
 NEGATIVE_CASE = {"dataset": "ctrate", "case_id": "train_9163_a_1"}
 
@@ -88,7 +87,6 @@ def pick_negative_sentence(sentences: list) -> dict:
                   if s.get("generated", False)
                   and s.get("violations")]
     if candidates:
-        # Prefer sentences with laterality violations (R1) for visual clarity
         lat = [s for s in candidates
                if any(v.get("rule_id", "").startswith("R1") for v in s["violations"])]
         if lat:
@@ -122,7 +120,6 @@ def _draw_panel(fig, pos, vol, slice_img, z_idx, tokens, cited_ids, sentence,
     violations = sentence.get("violations", [])
 
     if vol is not None and slice_img is not None:
-        # Panel (a): CT slice
         ax1 = fig.add_subplot(*pos, 1)
         ax1.imshow(slice_img.T, cmap="gray", origin="lower", aspect="equal")
         ax1.set_title(f"({panel_labels[0]}) CT Axial Slice (z={z_idx})", fontsize=10)
@@ -130,7 +127,6 @@ def _draw_panel(fig, pos, vol, slice_img, z_idx, tokens, cited_ids, sentence,
         ax1.set_ylabel("y (voxels)", fontsize=8)
         ax1.tick_params(labelsize=7)
 
-        # Panel (b): CT slice + token overlay
         ax2 = fig.add_subplot(*pos, 2)
         ax2.imshow(slice_img.T, cmap="gray", origin="lower", aspect="equal")
 
@@ -161,7 +157,6 @@ def _draw_panel(fig, pos, vol, slice_img, z_idx, tokens, cited_ids, sentence,
         ax2.set_ylabel("y (voxels)", fontsize=8)
         ax2.tick_params(labelsize=7)
     else:
-        # No volume — schematic layout
         ax1 = fig.add_subplot(*pos, 1)
         ax1.text(0.5, 0.5, "CT Volume\n(not available)",
                 ha="center", va="center", fontsize=14, color="gray",
@@ -190,7 +185,6 @@ def _draw_panel(fig, pos, vol, slice_img, z_idx, tokens, cited_ids, sentence,
         ax2.set_title(f"({panel_labels[1]}) Routed Tokens (k={len(cited_ids)})", fontsize=10)
         ax2.set_aspect("equal")
 
-    # Panel (c): text card
     ax3 = fig.add_subplot(*pos, 3)
     ax3.axis("off")
 
@@ -278,7 +272,6 @@ def plot_single_case(case_def: dict, pick_fn, fig_name: str,
     print(f"  Violations: {[v.get('rule_id') for v in violations] if violations else 'None'}")
     print(f"  Cited tokens: {cited_ids}")
 
-    # Prepare slice
     slice_img = None
     z_idx = None
     if vol is not None:
@@ -307,13 +300,11 @@ def plot_combined():
     print(f"\n{'=' * 60}")
     print("Generating combined figure: fig4_qualitative_combined")
 
-    # Load positive case
     _, tokens_pos, sents_pos, vol_pos = _load_case_data(
         POSITIVE_CASE["dataset"], POSITIVE_CASE["case_id"])
     sent_pos = pick_positive_sentence(sents_pos)
     cited_pos = sent_pos.get("topk_token_ids", [])
 
-    # Load negative case
     _, tokens_neg, sents_neg, vol_neg = _load_case_data(
         NEGATIVE_CASE["dataset"], NEGATIVE_CASE["case_id"])
     sent_neg = pick_negative_sentence(sents_neg)
@@ -321,7 +312,6 @@ def plot_combined():
 
     fig = plt.figure(figsize=(14, 10))
 
-    # Top row: positive example
     slice_pos = None
     z_pos = None
     if vol_pos is not None:
@@ -336,7 +326,6 @@ def plot_combined():
                 title_suffix="[Pass]",
                 box_color="honeydew")
 
-    # Bottom row: negative example
     slice_neg = None
     z_neg = None
     if vol_neg is not None:
@@ -345,13 +334,11 @@ def plot_combined():
         z_neg = find_best_slice(vol_neg.shape, tokens_neg, cited_neg)
         slice_neg = vol_neg[:, :, z_neg]
 
-    # Offset subplot indices for bottom row
     token_map_neg = {t["token_id"]: t for t in tokens_neg}
     text_neg = sent_neg.get("sentence_text", "")
     anatomy_neg = sent_neg.get("anatomy_keyword", "")
     violations_neg = sent_neg.get("violations", [])
 
-    # Draw bottom row manually with offset
     ax4 = fig.add_subplot(2, 3, 4)
     ax5 = fig.add_subplot(2, 3, 5)
     ax6 = fig.add_subplot(2, 3, 6)
@@ -415,7 +402,6 @@ def plot_combined():
         ax5.set_title(f"(e) Routed Tokens (k={len(cited_neg)})", fontsize=10)
         ax5.set_aspect("equal")
 
-    # Panel (f): text card for negative
     ax6.axis("off")
     evidence_card = sent_neg.get("evidence_card", {})
     ec_text = ""
@@ -462,7 +448,6 @@ def plot_combined():
 
 
 def main():
-    # Individual figures
     plot_single_case(
         POSITIVE_CASE, pick_positive_sentence,
         fig_name="fig4a_qualitative_positive",
@@ -478,10 +463,8 @@ def main():
         panel_labels=("d", "e", "f"),
     )
 
-    # Combined 2-row figure
     plot_combined()
 
-    # Also keep the old fig4_qualitative for backward compat
     plot_single_case(
         POSITIVE_CASE, pick_positive_sentence,
         fig_name="fig4_qualitative",

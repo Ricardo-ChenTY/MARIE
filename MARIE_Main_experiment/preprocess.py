@@ -23,7 +23,6 @@ def load_volume_with_meta(path: str) -> Tuple[np.ndarray, Dict[str, object]]:
             "source": str(p),
         }
     img = sitk.ReadImage(str(p))
-    # Canonicalize to LPS so laterality uses a consistent physical coordinate frame.
     img = sitk.DICOMOrient(img, "LPS")
     arr = sitk.GetArrayFromImage(img).astype(np.float32)  # [D,H,W]
     spacing_xyz = img.GetSpacing()  # x,y,z
@@ -69,7 +68,6 @@ def resampled_spacing_xyz_mm(
     d0, h0, w0 = original_shape_dhw
     d1, h1, w1 = output_shape_dhw
     sx, sy, sz = original_spacing_xyz_mm
-    # x maps to W, y maps to H, z maps to D
     sx_new = sx * (w0 / max(w1, 1))
     sy_new = sy * (h0 / max(h1, 1))
     sz_new = sz * (d0 / max(d1, 1))

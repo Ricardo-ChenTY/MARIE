@@ -21,9 +21,6 @@ from typing import Dict, List, Tuple
 
 from huggingface_hub import hf_hub_download, HfApi
 
-# ==========================================
-# 1. Logging / 日志系统
-# ==========================================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -32,9 +29,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ==========================================
-# 2. Data Model / 数据模型
-# ==========================================
 @dataclass
 class Job:
     name: str
@@ -47,11 +41,7 @@ class Job:
     preferred_prefixes: List[str]
 
 
-# ==========================================
-# 3. Core Logic / 核心处理逻辑
-# ==========================================
 def normalize_case_id(volume_name: str) -> str:
-    # Use volume-level ID so each .nii.gz maps to a unique case_id.
     return re.sub(r"\.nii\.gz$", "", volume_name)
 
 
@@ -264,9 +254,6 @@ def download_selected(
     return manifest
 
 
-# ==========================================
-# 4. Job Runner / 任务执行器
-# ==========================================
 def run_job(job: Job, log_interval: int = 50) -> None:
     logger.info(f"========== [{job.name}] Starting job / 开始处理任务 ==========")
 
@@ -325,9 +312,6 @@ def run_job(job: Job, log_interval: int = 50) -> None:
     logger.info(f"========== [{job.name}] Job finished / 任务完成 ==========")
 
 
-# ==========================================
-# 5. Entrypoint builder / 入口构建器
-# ==========================================
 def build_parser(script_label: str, default_log_interval: int) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -354,7 +338,7 @@ def build_parser(script_label: str, default_log_interval: int) -> argparse.Argum
         "--out_dir",
         default=None,
         type=str,
-        help="Override output directory / 覆盖输出目录 (default: ../ProveTok_data_download)",
+        help="Override output directory / 覆盖输出目录 (default: ../MARIE_data_download)",
     )
     parser.add_argument(
         "--log_interval",
@@ -372,7 +356,6 @@ def run_main(script_label: str, default_log_interval: int) -> None:
     parser = build_parser(script_label, default_log_interval)
     args = parser.parse_args()
 
-    # --- HF_TOKEN check / 令牌检查 ---
     if not os.environ.get("HF_TOKEN"):
         logger.error(
             "HF_TOKEN not set! Please run: export HF_TOKEN='your_token' / "
@@ -380,13 +363,11 @@ def run_main(script_label: str, default_log_interval: int) -> None:
         )
         sys.exit(1)
 
-    # --- Resolve output dir / 解析输出目录 ---
-    # Default: ProveTok_ACM/ProveTok_data_download (one level up from Scripts/)
     script_dir = Path(__file__).resolve().parent
     if args.out_dir:
         out_base = Path(args.out_dir).resolve()
     else:
-        out_base = (script_dir.parent / "ProveTok_data_download").resolve()
+        out_base = (script_dir.parent / "MARIE_data_download").resolve()
 
     selected = {x.strip().lower() for x in args.jobs.split(",") if x.strip()}
     jobs = []
@@ -470,3 +451,4 @@ def run_main(script_label: str, default_log_interval: int) -> None:
         run_job(job, log_interval=args.log_interval)
 
     logger.info(f"[{script_label}] All jobs completed / 所有任务执行完毕。")
+

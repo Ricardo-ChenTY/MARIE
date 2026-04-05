@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# ============================================================
-# 训练 W_proj (InfoNCE) — 使用 5k train split (4000 cases)
-# valid split (500 cases) 做 early stopping
-#
-# 用法:
-#   bash Scripts/run_wprojection_train_5k.sh
-# ============================================================
 set -euo pipefail
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,12 +28,9 @@ echo "Train: ${N_TRAIN} cases  |  Val: ${N_VAL} cases"
 echo "OUT: ${OUT_DIR}"
 echo "=========================================="
 
-# Step 1: 合并 train+valid cases 目录（因为 train_wprojection.py 的 manifest 路径是相对于 cases_dir）
-# 需要创建一个统一的 cases 视图
 MERGED_CASES="${PROJ_ROOT}/outputs/stage0_5_5k/_merged_cases"
 mkdir -p "${MERGED_CASES}/ctrate" "${MERGED_CASES}/radgenome"
 
-# Symlink train cases
 for ds in ctrate radgenome; do
   for d in "${CASES_DIR}/${ds}"/*/; do
     name=$(basename "$d")
@@ -48,7 +38,6 @@ for ds in ctrate radgenome; do
   done
 done
 
-# Symlink valid cases
 for ds in ctrate radgenome; do
   for d in "${VAL_CASES_DIR}/${ds}"/*/; do
     name=$(basename "$d")
@@ -60,7 +49,6 @@ echo "Merged cases dir: ${MERGED_CASES}"
 echo "  ctrate: $(ls ${MERGED_CASES}/ctrate/ | wc -l) cases"
 echo "  radgenome: $(ls ${MERGED_CASES}/radgenome/ | wc -l) cases"
 
-# Step 2: Train W_proj
 python "${PROJ_ROOT}/train_wprojection.py" \
   --cases_dir     "${MERGED_CASES}" \
   --train_manifest "${TRAIN_MANIFEST}" \

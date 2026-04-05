@@ -7,8 +7,6 @@ from .math_utils import clamp
 from .types import BBox3D, EvidenceToken, RuleViolation, SentenceAudit, SentenceOutput, SentencePlan
 
 
-# Word-boundary patterns to avoid false positives from substrings
-# e.g. "aorta" contains "rt", "heart" contains "rt", "result" contains "lt"
 _LEFT_RE = re.compile(r"\b(?:left|lt)\b|左", re.IGNORECASE)
 _RIGHT_RE = re.compile(r"\b(?:right|rt)\b|右", re.IGNORECASE)
 _BILATERAL_RE = re.compile(r"\b(?:bilateral(?:ly)?|both)\b|双侧", re.IGNORECASE)
@@ -69,7 +67,6 @@ class Verifier:
 
     def _global_midline_x(self, tokens: Sequence[EvidenceToken]) -> float:
         if self.volume_shape is not None:
-            # volume_shape is [D,H,W], x-axis maps to W.
             return float(self.volume_shape[2]) / 2.0
         x_min = min(t.bbox.x_min for t in tokens)
         x_max = max(t.bbox.x_max for t in tokens)
@@ -88,7 +85,6 @@ class Verifier:
         side_claim = parse_laterality(sentence.text)
         negated = plan.is_negated or detect_negation(sentence.text)
 
-        # R1 laterality consistency
         r1_skipped = (self.cfg.r1_negation_exempt and negated) or bool(
             plan.anatomy_keyword
             and plan.anatomy_keyword.lower() in self.cfg.r1_skip_midline_keywords
@@ -115,7 +111,6 @@ class Verifier:
                     )
                 )
 
-        # R2 anatomy IoU consistency
         anatomy_bbox = self.anatomy_bbox_resolver(plan.anatomy_keyword)
         r2_skipped = bool(
             plan.anatomy_keyword
@@ -164,7 +159,6 @@ class Verifier:
                         )
                     )
 
-        # R3 depth-level consistency
         if plan.expected_level_range and cited:
             low, high = plan.expected_level_range
             bad_ids = [tok.token_id for tok in cited if not (low <= tok.level <= high)]
@@ -179,7 +173,6 @@ class Verifier:
                     )
                 )
 
-        # R4 size/range consistency
         if not self.cfg.r4_disabled and plan.expected_volume_range and cited:
             union_box = BBox3D.union_all([tok.bbox for tok in cited])
             if union_box is not None:
@@ -196,7 +189,6 @@ class Verifier:
                         )
                     )
 
-        # R5 negation handling
         if negated and cited:
             conflicted = [
                 tok for tok in cited if float(tok.metadata.get("negation_conflict", 0.0)) > 0.0
@@ -257,7 +249,6 @@ class Verifier:
         """
         violations: List[RuleViolation] = []
 
-        # Group sentences by anatomy keyword
         by_anatomy: Dict[str, List[Tuple[SentenceOutput, SentencePlan]]] = {}
         for s_out, plan in zip(sentence_outputs, plans):
             kw = (plan.anatomy_keyword or "").lower().strip()
@@ -269,7 +260,6 @@ class Verifier:
             if len(group) < 2:
                 continue
 
-            # R6a: laterality conflict
             lateralities: Dict[str, List[int]] = {}
             for s_out, _ in group:
                 side = parse_laterality(s_out.text)
@@ -290,7 +280,6 @@ class Verifier:
                     token_ids=[],
                 ))
 
-            # R6b: presence/absence conflict
             pos_sents: List[int] = []
             neg_sents: List[int] = []
             for s_out, plan in group:

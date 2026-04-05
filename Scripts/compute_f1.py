@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Compute token-level F1 (word overlap precision / recall / F1) for ProveTok
+Compute token-level F1 (word overlap precision / recall / F1) for MARIE
 generated conditions. This is the standard "clinical F1" metric used in
 radiology report generation papers (R2Gen, CT2Rep, etc.).
 
@@ -62,7 +62,6 @@ def compute_token_f1(sentences: List[Dict[str, Any]]) -> Dict[str, float]:
         hyp_text = s.get("sentence_text", "")
         if not ref_text or not hyp_text:
             continue
-        # Skip passthrough (no generation)
         if not s.get("generated", False) and ref_text == hyp_text:
             continue
 
@@ -71,7 +70,6 @@ def compute_token_f1(sentences: List[Dict[str, Any]]) -> Dict[str, float]:
         if not ref_tokens or not hyp_tokens:
             continue
 
-        # Count overlapping tokens (with multiplicity)
         ref_counter = Counter(ref_tokens)
         hyp_counter = Counter(hyp_tokens)
         overlap = sum((ref_counter & hyp_counter).values())
@@ -102,7 +100,6 @@ def main():
     args = parser.parse_args()
 
     base = Path(args.base_dir)
-    # Only process conditions that have generation
     gen_conditions = ["B2_evcard_v1", "B2_evcard_v2", "C2_evcard_v1_judge", "D2_repair"]
 
     print(f"{'Condition':<30} {'Pairs':>6} {'Precision':>10} {'Recall':>10} {'F1':>10}")
@@ -119,7 +116,6 @@ def main():
         results[cond] = metrics
         print(f"{cond:<30} {metrics['n_pairs']:>6} {metrics['Precision']:>10.4f} {metrics['Recall']:>10.4f} {metrics['F1']:>10.4f}")
 
-    # Save results
     out_path = base.parent / "evaluation_5k" / "f1_scores.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
@@ -129,3 +125,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

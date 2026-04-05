@@ -94,7 +94,6 @@ class FrozenSwinUNETREncoder:
 
     @staticmethod
     def _extract_encoder_feature(model: SwinUNETR, x: torch.Tensor) -> torch.Tensor:
-        # Preferred path in MONAI SwinUNETR: use backbone hidden states directly.
         if hasattr(model, "swinViT"):
             normalize = bool(getattr(model, "normalize", True))
             hs = model.swinViT(x, normalize)
@@ -103,7 +102,6 @@ class FrozenSwinUNETREncoder:
                 if isinstance(feat, (list, tuple)):
                     feat = feat[0]
                 return feat
-        # Fallback path: use full forward output if backbone hooks are unavailable.
         y = model(x)
         if isinstance(y, (list, tuple)):
             y = y[0]

@@ -1,4 +1,4 @@
-from .config import ProveTokConfig
+from .config import MARIEConfig
 from .types import (
     BBox3D,
     EvidenceToken,
@@ -14,7 +14,7 @@ from .stage3_router import Router
 from .stage4_verifier import Verifier
 
 __all__ = [
-    "ProveTokConfig",
+    "MARIEConfig",
     "BBox3D",
     "EvidenceToken",
     "SentencePlan",
@@ -27,3 +27,4 @@ __all__ = [
     "Router",
     "Verifier",
 ]
+

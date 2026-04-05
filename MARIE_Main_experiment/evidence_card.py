@@ -20,14 +20,12 @@ class EvidenceCard:
 
     cited_count: int = 0
 
-    # Laterality distribution
     left_count: int = 0
     right_count: int = 0
     cross_count: int = 0  # tokens straddling the midline
     dominant_side: str = "unknown"  # "left" | "right" | "bilateral" | "mixed" | "unknown"
     same_side_ratio: float = 1.0  # max(left, right) / (left + right), or 1.0 if none
 
-    # Depth / level distribution
     level_histogram: Dict[int, int] = field(default_factory=dict)
     level_range_expected: Optional[Tuple[int, int]] = None
     in_range_count: int = 0
@@ -65,27 +63,22 @@ class EvidenceCard:
         """
         if strict:
             non_cross = self.left_count + self.right_count
-            # Need enough non-cross evidence to make any laterality claim
             if non_cross < 2:
                 return "none"
             if self.dominant_side in ("left", "right"):
-                # Stricter: require 90%+ purity for single-side claim
                 if self.same_side_ratio >= 0.9:
                     return self.dominant_side
                 return "none"
             if self.dominant_side == "bilateral":
-                # Require at least 2 tokens on each side
                 if self.left_count >= 2 and self.right_count >= 2:
                     return "bilateral"
                 return "none"
             return "none"
 
-        # --- Original (v1) logic ---
         if self.dominant_side in ("left", "right"):
             return self.dominant_side
         if self.dominant_side == "bilateral":
             return "bilateral"
-        # mixed or unknown => do not mention laterality
         return "none"
 
     def depth_allowed(self) -> str:
@@ -100,7 +93,6 @@ class EvidenceCard:
         Requires >= 75% of tokens to be in the expected level range.
         """
         if self.level_range_expected is None:
-            # No expected range → depth terms are unconstrained
             return "unconstrained"
         total = self.in_range_count + self.out_of_range_count
         if total == 0:
@@ -144,7 +136,6 @@ def build_evidence_card(
     if not tokens:
         return card
 
-    # --- Laterality ---
     for tok in tokens:
         side = _token_side(tok, x_mid, lateral_tolerance)
         if side == "left":
@@ -165,21 +156,17 @@ def build_evidence_card(
             else:
                 card.dominant_side = "right"
         elif card.left_count > 0 and card.right_count > 0:
-            # Both sides present but neither dominant enough
             min_side = min(card.left_count, card.right_count)
             if min_side / non_cross >= 0.3:
-                # Substantial presence on both sides => bilateral
                 card.dominant_side = "bilateral"
             else:
                 card.dominant_side = "mixed"
         else:
             card.dominant_side = "mixed"
     else:
-        # All tokens on midline
         card.same_side_ratio = 1.0
         card.dominant_side = "unknown"
 
-    # --- Depth / Level ---
     level_counter: Counter = Counter()
     for tok in tokens:
         level_counter[tok.level] += 1

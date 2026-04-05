@@ -1,22 +1,8 @@
 #!/usr/bin/env bash
-# ============================================================
-# Stage 0-5 Full Pipeline — 5k dataset (2500/2500)
-#   Best config: B2'v2 (Evidence Card v2 + Log-smooth Reroute)
-#
-# 数据: /mnt/dataset/ (1TB 挂载盘)
-# 输出: /data/ProveTok_ACM/outputs/stage0_5_5k/
-#
-# 用法:
-#   bash Scripts/run_stage0_5_5k.sh              # 跑全部 (train+valid+test)
-#   bash Scripts/run_stage0_5_5k.sh train        # 只跑 train split
-#   bash Scripts/run_stage0_5_5k.sh valid        # 只跑 valid split
-#   bash Scripts/run_stage0_5_5k.sh test         # 只跑 test split
-# ============================================================
 set -euo pipefail
 
 SPLIT="${1:-all}"  # train / valid / test / all
 
-# ─── 路径 ────────────────────────────────────────
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MANI_DIR="${PROJ_ROOT}/manifests"
 ENCODER_CKPT="${PROJ_ROOT}/checkpoints/swinunetr.ckpt"
@@ -24,11 +10,9 @@ MODEL_DIR="${PROJ_ROOT}/models/Llama-3.1-8B-Instruct"
 CACHE_ROOT="${PROJ_ROOT}/.cache"
 HF_HOME_DIR="${PROJ_ROOT}/.hf"
 
-# 每个 split 的 case 数
 declare -A CASES_CT=( [train]=2000 [valid]=250 [test]=250 )
 declare -A CASES_RG=( [train]=2000 [valid]=250 [test]=250 )
 
-# ─── 环境 ────────────────────────────────────────
 mkdir -p \
   "${CACHE_ROOT}/huggingface/hub" \
   "${CACHE_ROOT}/huggingface/transformers" \
@@ -47,7 +31,6 @@ if [ ! -d "${MODEL_DIR}" ]; then
   exit 1
 fi
 
-# ─── 确定要跑的 splits ────────────────────────────
 if [ "${SPLIT}" = "all" ]; then
   SPLITS=("train" "valid" "test")
 else
@@ -75,7 +58,6 @@ for S in "${SPLITS[@]}"; do
   echo "OUT: ${OUT_DIR}"
   echo "=========================================="
 
-  # checkpoint 检测 (只跑一次)
   if [ ! -f "${OUT_DIR}/ckpt_probe_report.json" ]; then
     python "${PROJ_ROOT}/Scripts/ckpt_probe.py" \
       --ckpt_path "${ENCODER_CKPT}" \
@@ -85,7 +67,6 @@ for S in "${SPLITS[@]}"; do
       --save_report "${OUT_DIR}/ckpt_probe_report.json"
   fi
 
-  # 主实验
   python "${PROJ_ROOT}/run_mini_experiment.py" \
     --ctrate_csv    "${CT_CSV}" \
     --radgenome_csv "${RG_CSV}" \
@@ -125,7 +106,6 @@ for S in "${SPLITS[@]}"; do
     --reroute_gamma 2.0 \
     --reroute_max_retry 1 2>&1 | tee "${OUT_DIR}/run.log"
 
-  # 结构验收
   python "${PROJ_ROOT}/validate_stage0_4_outputs.py" \
     --out_dir "${OUT_DIR}" \
     --datasets ctrate,radgenome \
@@ -140,3 +120,4 @@ echo "=========================================="
 echo "全部完成"
 echo "=========================================="
 echo "输出目录: ${PROJ_ROOT}/outputs/stage0_5_5k/{train,valid,test}/"
+

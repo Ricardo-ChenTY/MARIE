@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .config import ProveTokConfig
+from .config import MARIEConfig
 from .evidence_card import _token_side, build_evidence_card
 from .simple_modules import ReportSentencePlanner, RuleBasedAnatomyResolver
 from .stage0_scorer import DeterministicArtifactScorer
@@ -38,7 +38,7 @@ def run_case_stage0_4(
     volume,
     spacing_xyz_mm: Tuple[float, float, float],
     out_case_dir: str,
-    cfg: ProveTokConfig,
+    cfg: MARIEConfig,
     comp: Stage04Components,
 ) -> Dict[str, object]:
     out_dir = Path(out_case_dir)
@@ -93,7 +93,6 @@ def run_case_stage0_4(
         topk_ids = sorted(scores.keys(), key=lambda tid: (-scores[tid], tid))[: cfg.router.k_per_sentence]
         topk_scores = [float(scores[tid]) for tid in topk_ids]
 
-        # Build evidence card for this sentence (used by Stage 3c and Stage 5)
         cited_tokens = [token_map[tid] for tid in topk_ids if tid in token_map]
         x_mid = float(volume.shape[2]) / 2.0
         ev_card = build_evidence_card(
@@ -103,10 +102,6 @@ def run_case_stage0_4(
             expected_level_range=plan.expected_level_range,
         )
 
-        # --- Patch 3: Same-side / in-range token cleanup ---
-        # If dominant side is clear, remove opposite-side tokens from cited set.
-        # If expected level range exists, remove out-of-range tokens.
-        # Then rebuild the evidence card with the cleaned set.
         strict_lat = (comp.generator is not None and comp.generator.cfg.strict_laterality)
         if strict_lat and ev_card.dominant_side in ("left", "right"):
             target_side = ev_card.dominant_side
@@ -127,7 +122,6 @@ def run_case_stage0_4(
                 topk_ids = [t.token_id for t in cited_tokens]
                 topk_scores = [float(scores.get(t.token_id, 0.0)) for t in cited_tokens]
 
-        # Rebuild evidence card after cleanup (if tokens changed)
         ev_card = build_evidence_card(
             cited_tokens,
             x_mid=x_mid,
@@ -136,7 +130,6 @@ def run_case_stage0_4(
         )
         evidence_cards[plan.sentence_index] = ev_card
 
-        # Stage 3c: LLM generation conditioned on routed tokens
         gen_text = plan.topic
         gen_flag = False
         gen_error: Optional[str] = None
@@ -160,7 +153,6 @@ def run_case_stage0_4(
                 generation_error=gen_error,
             )
         )
-        # Accumulate history for subsequent sentences
         generated_history.append(gen_text)
 
         sentence_logs.append(
@@ -180,10 +172,8 @@ def run_case_stage0_4(
 
     audits = comp.verifier.audit_all(sentence_outputs, plans, tokens)
 
-    # Cross-sentence consistency check (R6)
     cross_violations = comp.verifier.cross_sentence_check(sentence_outputs, plans)
     if cross_violations:
-        # Attach cross-sentence violations to the relevant audits
         audit_map = {a.sentence_index: a for a in audits}
         for cv in cross_violations:
             a = audit_map.get(cv.sentence_index)
@@ -191,7 +181,6 @@ def run_case_stage0_4(
                 a.violations.append(cv)
                 a.passed = False
 
-    # Stage 5: LLM judge — confirm/dismiss violations, log-smooth penalty, re-top-k, regenerate
     stage5_judgements: Dict[int, object] = {}
     gamma = cfg.reroute.gamma_penalty
     max_retry = cfg.reroute.max_retry
@@ -209,9 +198,7 @@ def run_case_stage0_4(
 
             repaired = False
 
-            # --- Action-dispatched repair ---
 
-            # 1) drop_laterality: strip laterality words directly (no reroute needed)
             if "drop_laterality" in actions and not repaired:
                 new_text = drop_laterality(s_out.text)
                 if new_text != s_out.text:
@@ -220,7 +207,6 @@ def run_case_stage0_4(
                     s_out.stop_reason = "drop_laterality"
                     repaired = True
 
-            # 2) drop_depth: strip depth words directly
             if "drop_depth" in actions and not repaired:
                 new_text = drop_depth(s_out.text)
                 if new_text != s_out.text:
@@ -229,7 +215,6 @@ def run_case_stage0_4(
                     s_out.stop_reason = "drop_depth"
                     repaired = True
 
-            # 3) reroute_same_side: filter to dominant-side tokens, re-top-k, regenerate
             if "reroute_same_side" in actions and not repaired:
                 ev_card = evidence_cards.get(s_out.sentence_index)
                 if ev_card is not None and ev_card.dominant_side in ("left", "right"):
@@ -247,7 +232,6 @@ def run_case_stage0_4(
                         s_out.citations = side_ids
                         s_out.rerouted = True
                         s_out.stop_reason = "reroute_same_side"
-                        # Regenerate with same-side tokens
                         if comp.generator is not None and max_retry > 0:
                             regen_cited = [token_map[tid] for tid in side_ids if tid in token_map]
                             regen_ev_card = build_evidence_card(
@@ -268,7 +252,6 @@ def run_case_stage0_4(
                             s_out.generation_error = gen_result.error
                         repaired = True
 
-            # 4) Fallback: generic log-smooth penalty + reroute + regenerate
             if not repaired:
                 audit = next((a for a in audits if a.sentence_index == s_out.sentence_index), None)
                 penalized = comp.llm_judge.reroute_scores_log_smooth(
@@ -303,7 +286,6 @@ def run_case_stage0_4(
                     s_out.generated = gen_result.error is None
                     s_out.generation_error = gen_result.error
 
-                    # Re-verify; if still failing → de-specify fallback
                     re_audit = comp.verifier.audit_all([s_out], [plan], tokens)
                     if re_audit and re_audit[0].violations:
                         despec_topic = despecify_text(plan.topic)
@@ -390,3 +372,4 @@ def run_case_stage0_4(
         "n_cross_violations": len(cross_violations),
         "trace_jsonl": str(trace_jsonl),
     }
+

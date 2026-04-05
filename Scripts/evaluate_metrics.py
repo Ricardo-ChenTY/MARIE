@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Evaluate NLG metrics (BLEU, ROUGE-L, METEOR) and spatial consistency metrics
-across all ProveTok experiment conditions.
+across all MARIE experiment conditions.
 
 Reads trace.jsonl files from each condition, computes:
   Layer 1 (Spatial): violation rate, per-rule breakdown, repair success rate
@@ -28,7 +28,6 @@ from nltk.translate.meteor_score import meteor_score as nltk_meteor
 from rouge_score import rouge_scorer
 
 
-# ── Verifier re-implementation (standalone, matches stage4_verifier.py) ──
 
 _LEFT_RE = re.compile(r"\b(?:left|lt)\b|左", re.IGNORECASE)
 _RIGHT_RE = re.compile(r"\b(?:right|rt)\b|右", re.IGNORECASE)
@@ -48,7 +47,6 @@ def parse_laterality(text: str) -> Optional[str]:
     return None
 
 
-# ── Data loading ──
 
 def load_traces(condition_dir: str) -> List[Dict[str, Any]]:
     """Load all trace.jsonl files from a condition directory."""
@@ -74,7 +72,6 @@ def load_traces(condition_dir: str) -> List[Dict[str, Any]]:
     return all_sentences
 
 
-# ── NLG Metrics ──
 
 def compute_nlg_metrics(sentences: List[Dict[str, Any]]) -> Dict[str, float]:
     """Compute BLEU-1/2/3/4, ROUGE-L, METEOR from generated vs original topic."""
@@ -94,7 +91,6 @@ def compute_nlg_metrics(sentences: List[Dict[str, Any]]) -> Dict[str, float]:
         if not ref_text or not hyp_text:
             continue
 
-        # Skip if not generated (text == topic passthrough)
         if not s.get("generated", False) and ref_text == hyp_text:
             continue
 
@@ -107,11 +103,9 @@ def compute_nlg_metrics(sentences: List[Dict[str, Any]]) -> Dict[str, float]:
         references_corpus.append([ref_tokens])
         hypotheses_corpus.append(hyp_tokens)
 
-        # METEOR (needs tokenized input)
         m = nltk_meteor([ref_tokens], hyp_tokens)
         meteor_scores.append(m)
 
-        # ROUGE-L
         r = scorer.score(ref_text, hyp_text)
         rouge_l_scores.append(r["rougeL"].fmeasure)
 
@@ -141,7 +135,6 @@ def compute_nlg_metrics(sentences: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-# ── Spatial Consistency Metrics ──
 
 def compute_spatial_metrics(sentences: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Compute violation rate, per-rule breakdown, repair success rate."""
@@ -150,12 +143,10 @@ def compute_spatial_metrics(sentences: List[Dict[str, Any]]) -> Dict[str, Any]:
     if total_sentences == 0:
         return {"n_sentences": 0}
 
-    # Count violations using the stored violations from trace
     rule_counts: Counter = Counter()
     total_violations = 0
     sentences_with_violations = 0
 
-    # Repair tracking
     n_rerouted = 0
     n_repaired_success = 0  # rerouted and final text has no violations
 
@@ -182,7 +173,6 @@ def compute_spatial_metrics(sentences: List[Dict[str, Any]]) -> Dict[str, Any]:
         "n_rerouted": n_rerouted,
     }
 
-    # Per-rule breakdown
     for rule in ["R1_LATERALITY", "R2_ANATOMY", "R3_DEPTH", "R4_SIZE",
                  "R5_NEGATION", "R6a_CROSS_LATERALITY", "R6b_CROSS_PRESENCE"]:
         result[rule] = rule_counts.get(rule, 0)
@@ -190,7 +180,6 @@ def compute_spatial_metrics(sentences: List[Dict[str, Any]]) -> Dict[str, Any]:
     return result
 
 
-# ── Re-audit with fixed verifier (recount from trace data) ──
 
 def reaudit_violations_from_trace(sentences: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -227,10 +216,9 @@ def reaudit_violations_from_trace(sentences: List[Dict[str, Any]]) -> Dict[str, 
     return result
 
 
-# ── Main ──
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate ProveTok metrics")
+    parser = argparse.ArgumentParser(description="Evaluate MARIE metrics")
     parser.add_argument("--base_dir", default="outputs/ablation_routing_2x2",
                         help="Base directory containing experiment conditions")
     parser.add_argument("--output_dir", default="outputs/evaluation",
@@ -243,7 +231,6 @@ def main():
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Find all conditions
     conditions = sorted([
         d.name for d in base.iterdir()
         if d.is_dir() and (d / "cases").exists()
@@ -252,7 +239,6 @@ def main():
     print(f"Found {len(conditions)} conditions in {base}")
     print(f"Conditions: {conditions}\n")
 
-    # ── Compute metrics for each condition ──
     all_results: List[Dict[str, Any]] = []
 
     for cond in conditions:
@@ -261,10 +247,8 @@ def main():
         sentences = load_traces(cond_dir)
         print(f"  Loaded {len(sentences)} sentences")
 
-        # Spatial metrics
         spatial = compute_spatial_metrics(sentences)
 
-        # NLG metrics (only meaningful for conditions with generation)
         has_generation = any(s.get("generated", False) for s in sentences)
         if has_generation:
             nlg = compute_nlg_metrics(sentences)
@@ -280,7 +264,6 @@ def main():
         result.update({f"nlg_{k}": v for k, v in nlg.items()})
         all_results.append(result)
 
-        # Print summary
         vr = spatial.get("violation_rate", 0)
         n_v = spatial.get("n_violations", 0)
         n_s = spatial.get("n_sentences", 0)
@@ -291,7 +274,6 @@ def main():
             print(f"  NLG: N/A (no generation)")
         print()
 
-    # ── K-sweep conditions ──
     k_sweep_base = Path(args.k_sweep_dir)
     if k_sweep_base.exists():
         k_conditions = sorted([
@@ -322,9 +304,7 @@ def main():
                 print(f"  NLG: BLEU-4={nlg['BLEU-4']}, ROUGE-L={nlg['ROUGE-L']}, METEOR={nlg['METEOR']}")
             print()
 
-    # ── Save results ──
 
-    # 1. CSV
     csv_path = out_dir / "metrics_all_conditions.csv"
     if all_results:
         keys = list(all_results[0].keys())
@@ -334,12 +314,10 @@ def main():
             w.writerows(all_results)
         print(f"\nSaved CSV: {csv_path}")
 
-    # 2. Pretty-print summary table
     print("\n" + "=" * 100)
     print("SUMMARY TABLE")
     print("=" * 100)
 
-    # Layer 1: Spatial Consistency
     print("\n--- Layer 1: Spatial Consistency (Violation Counts) ---")
     print(f"{'Condition':<35} {'Sent':>5} {'Total':>6} {'Rate%':>6} "
           f"{'R1':>4} {'R2':>4} {'R3':>4} {'R4':>4} {'R5':>4} {'R6a':>4} {'R6b':>4}")
@@ -358,7 +336,6 @@ def main():
               f"{r.get('spatial_R6a_CROSS_LATERALITY', 0):>4} "
               f"{r.get('spatial_R6b_CROSS_PRESENCE', 0):>4}")
 
-    # Layer 2: NLG Metrics
     print("\n--- Layer 2: NLG Metrics (generated conditions only) ---")
     print(f"{'Condition':<35} {'Pairs':>6} {'BLEU-1':>7} {'BLEU-2':>7} {'BLEU-3':>7} {'BLEU-4':>7} {'ROUGE-L':>8} {'METEOR':>7}")
     print("-" * 100)
@@ -377,7 +354,6 @@ def main():
               f"{fmt(r.get('nlg_ROUGE-L'))} "
               f"{fmt(r.get('nlg_METEOR'))}")
 
-    # 3. Save JSON
     json_path = out_dir / "metrics_all_conditions.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(all_results, f, indent=2, ensure_ascii=False)
@@ -387,3 +363,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

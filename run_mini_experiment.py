@@ -5,31 +5,31 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from ProveTok_Main_experiment.config import ProveTokConfig
-from ProveTok_Main_experiment.dataset_tools import build_ctrate_radgenome_minis
-from ProveTok_Main_experiment.preprocess import (
+from MARIE_Main_experiment.config import MARIEConfig
+from MARIE_Main_experiment.dataset_tools import build_ctrate_radgenome_minis
+from MARIE_Main_experiment.preprocess import (
     ct_intensity_normalize,
     load_volume_with_meta,
     resize_volume,
     resampled_spacing_xyz_mm,
 )
-from ProveTok_Main_experiment.simple_modules import ReportSentencePlanner, RuleBasedAnatomyResolver
-from ProveTok_Main_experiment.stage0_scorer import DeterministicArtifactScorer
-from ProveTok_Main_experiment.stage1_swinunetr_encoder import FrozenSwinUNETREncoder
-from ProveTok_Main_experiment.stage2_octree_splitter import AdaptiveOctreeSplitter
-from ProveTok_Main_experiment.stage3_router import Router
-from ProveTok_Main_experiment.stage4_verifier import Verifier
-from ProveTok_Main_experiment.stage0_4_runner import run_case_stage0_4, Stage04Components
-from ProveTok_Main_experiment.stage3c_generator import Stage3cGenerator, GeneratorConfig
-from ProveTok_Main_experiment.stage5_llm_judge import LLMJudge
-from ProveTok_Main_experiment.text_encoder import make_text_encoder
+from MARIE_Main_experiment.simple_modules import ReportSentencePlanner, RuleBasedAnatomyResolver
+from MARIE_Main_experiment.stage0_scorer import DeterministicArtifactScorer
+from MARIE_Main_experiment.stage1_swinunetr_encoder import FrozenSwinUNETREncoder
+from MARIE_Main_experiment.stage2_octree_splitter import AdaptiveOctreeSplitter
+from MARIE_Main_experiment.stage3_router import Router
+from MARIE_Main_experiment.stage4_verifier import Verifier
+from MARIE_Main_experiment.stage0_4_runner import run_case_stage0_4, Stage04Components
+from MARIE_Main_experiment.stage3c_generator import Stage3cGenerator, GeneratorConfig
+from MARIE_Main_experiment.stage5_llm_judge import LLMJudge
+from MARIE_Main_experiment.text_encoder import make_text_encoder
 
 
 def _run_manifest(
     dataset_name: str,
     manifest_csv: str,
     out_dir: Path,
-    cfg: ProveTokConfig,
+    cfg: MARIEConfig,
     volume_col: str,
     report_col: str,
     case_id_col: str,
@@ -235,7 +235,6 @@ def main() -> None:
             "semantic relevance."
         ),
     )
-    # Stage 5: LLM judge
     parser.add_argument(
         "--llm_judge",
         type=str,
@@ -290,7 +289,6 @@ def main() -> None:
         default=None,
         help="HuggingFace access token for gated models (e.g. Llama-3). Falls back to HF_TOKEN env var.",
     )
-    # Stage 3c: Token-gated LLM generation
     parser.add_argument(
         "--stage3c_backend",
         type=str,
@@ -322,7 +320,6 @@ def main() -> None:
         default=False,
         help="Evidence Card v2: stricter laterality gate (ssr>=0.9, min 2 non-cross) + depth gate + same-side token cleanup.",
     )
-    # Reroute config
     parser.add_argument(
         "--reroute_gamma",
         type=float,
@@ -354,7 +351,7 @@ def main() -> None:
         )
         ctrate_csv, radgenome_csv = mini_paths
 
-    cfg = ProveTokConfig()
+    cfg = MARIEConfig()
     cfg.split.token_budget_b = int(args.token_budget_b)
     cfg.split.beta = float(args.beta)
     cfg.router.k_per_sentence = int(args.k_per_sentence)
@@ -375,8 +372,6 @@ def main() -> None:
         cfg.verifier.r5_fallback_lexicon = False
     if args.r2_skip_bilateral:
         cfg.verifier.r2_skip_keywords = {"bilateral"}
-    # "left lung" / "right lung" are fallback routing keywords (entire half-volume bbox).
-    # Their IoU with small token bboxes is structurally too low for R2 to be meaningful.
     cfg.verifier.r2_skip_keywords.update({"left lung", "right lung"})
     if args.r1_negation_exempt:
         cfg.verifier.r1_negation_exempt = True
@@ -419,7 +414,6 @@ def main() -> None:
         st_device=args.text_encoder_device,
     )
 
-    # Load trained W_proj if provided
     _w_proj_matrix = None
     if args.w_proj_path:
         import torch
@@ -427,15 +421,13 @@ def main() -> None:
         _w_proj_matrix = _w.tolist()  # Convert to List[List[float]] for Router
         print(f"[W_proj] Loaded trained projection from {args.w_proj_path} (shape {list(_w.shape)})")
 
-    # Common paths
     _PROJECT_ROOT = Path(__file__).parent
     _LOCAL_LLAMA = _PROJECT_ROOT / "models" / "Llama-3.1-8B-Instruct"
 
-    # Stage 5 LLM judge setup
     llm_judge: Optional[LLMJudge] = None
     if args.llm_judge:
         import os
-        from ProveTok_Main_experiment.stage5_llm_judge import LLMJudgeConfig
+        from MARIE_Main_experiment.stage5_llm_judge import LLMJudgeConfig
 
         _default_models = {
             "ollama": "qwen2.5:7b",
@@ -445,7 +437,6 @@ def main() -> None:
         }
         _model = args.llm_judge_model or _default_models[args.llm_judge]
 
-        # For huggingface backend: if a relative path is given, resolve from project root
         if args.llm_judge == "huggingface" and not os.path.isabs(_model) and not _model.startswith("meta-llama/"):
             _model = str(_PROJECT_ROOT / _model)
 
@@ -463,11 +454,9 @@ def main() -> None:
         llm_judge = LLMJudge(_judge_cfg)
         print(f"[Stage 5] LLM judge enabled: backend={args.llm_judge}, model={_model}, alpha={args.llm_judge_alpha}")
 
-    # Reroute config
     cfg.reroute.gamma_penalty = float(args.reroute_gamma)
     cfg.reroute.max_retry = int(args.reroute_max_retry)
 
-    # Stage 3c generator setup
     generator: Optional[Stage3cGenerator] = None
     if args.stage3c_backend:
         import os as _os
@@ -476,7 +465,6 @@ def main() -> None:
         if _s3c_model is None:
             raise ValueError("--stage3c_model is required when --stage3c_backend is set (or set --llm_judge_model).")
 
-        # Resolve relative paths for huggingface backend
         if args.stage3c_backend == "huggingface" and not _os.path.isabs(_s3c_model) and not _s3c_model.startswith("meta-llama/"):
             _s3c_model = str(_PROJECT_ROOT / _s3c_model)
 
@@ -489,7 +477,6 @@ def main() -> None:
             strict_laterality=bool(args.strict_laterality),
         )
 
-        # LLM sharing: if same model + huggingface backend, reuse the HF pipeline
         _share_pipe = (
             args.stage3c_backend == "huggingface"
             and llm_judge is not None
@@ -498,7 +485,6 @@ def main() -> None:
             and _s3c_model == (args.llm_judge_model or str(_LOCAL_LLAMA))
         )
         if _share_pipe:
-            # Skip HF init by temporarily setting backend, then restore + inject pipe
             _gen_cfg_tmp = GeneratorConfig(
                 backend="ollama",  # no-op init
                 model=_s3c_model,
@@ -602,3 +588,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

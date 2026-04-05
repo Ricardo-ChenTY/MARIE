@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate Table 2 (ablation table) and Figures 1-3 for the ProveTok paper.
+Generate Table 2 (ablation table) and Figures 1-3 for the MARIE paper.
 
 Table 2: Ablation chain + grounding metrics + compute costs + violation rates + NLG
 Fig 1:   Waterfall / step plot of ablation chain
@@ -30,18 +30,14 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 
-# ── Paths ──
 ROOT = Path(__file__).resolve().parent.parent
 K_SWEEP_DIR = ROOT / "outputs" / "ablation_k_sweep"
 FIVE_K_DIR = ROOT / "outputs" / "stage0_5_5k"
 
-# These are set in main() based on --data_dir
 ABLATION_DIR: Path = ROOT / "outputs" / "ablation_routing_2x2"
 OUT_DIR: Path = ROOT / "outputs" / "paper_figures"
 
 
-# ── Ablation chain definition ──
-# (label, description) — directory names are resolved per data source
 ABLATION_CHAIN_LABELS = [
     ("A0",    "Identity $W$ + Spatial"),
     ("A1",    "Trained $W$ + Spatial"),
@@ -53,7 +49,6 @@ ABLATION_CHAIN_LABELS = [
     ("D2",    "+ Repair executor"),
 ]
 
-# Directory name mappings per data source
 _DIRNAME_180 = {
     "A0": "A0_identity_spatial",
     "A1": "A1_trained_spatial",
@@ -75,13 +70,11 @@ _DIRNAME_5K = {
     "D2": "D2_repair",
 }
 
-# Active chain — set in main()
 ABLATION_CHAIN: List[Tuple[str, str, str]] = []
 
 K_SWEEP_ORDER = [1, 2, 4, 6, 8, 12, 14]
 
 
-# ── Data loading ──
 
 def load_traces(condition_dir: str, load_tokens: bool = False) -> List[Dict[str, Any]]:
     """Load all trace.jsonl sentence records from a condition directory.
@@ -108,7 +101,6 @@ def load_traces(condition_dir: str, load_tokens: bool = False) -> List[Dict[str,
                     d["_case_id"] = case_meta.get("case_id", "") if case_meta else ""
                     case_sentences.append(d)
 
-        # Optionally load tokens.json for IoU computation
         if load_tokens and case_sentences:
             tokens_path = trace_path.parent / "tokens.json"
             tokens_by_id = {}
@@ -132,7 +124,6 @@ def load_run_meta(condition_dir: str) -> Optional[Dict]:
     return None
 
 
-# ── Metrics computation ──
 
 def compute_violation_metrics(sentences: List[Dict]) -> Dict[str, Any]:
     """Compute violation rate and per-rule breakdown."""
@@ -163,16 +154,13 @@ def compute_compute_metrics(sentences: List[Dict], run_meta: Optional[Dict]) -> 
     has_gen = any(s.get("generated", False) for s in sentences)
     has_judge = any(s.get("stage5_judgements") for s in sentences)
 
-    # C_LLM = number of LLM calls (generation + judge)
     c_llm_gen = sum(1 for s in sentences if s.get("generated", False))
     c_llm_judge = sum(len(s.get("stage5_judgements", [])) for s in sentences)
     c_llm = c_llm_gen + c_llm_judge
 
-    # N_reroute = number of rerouted sentences
     n_reroute = sum(1 for s in sentences
                     if s.get("stop_reason", "no_violation") != "no_violation")
 
-    # C_attn proxy = k × B (tokens cited per sentence × token budget)
     k_vals = [len(s.get("topk_token_ids", [])) for s in sentences]
     avg_k = np.mean(k_vals) if k_vals else 0
 
@@ -209,7 +197,6 @@ def _bbox3d_overlap_ratio(token_bbox: Dict, anatomy_bbox: Dict) -> float:
     return inter / token_vol if token_vol > 0 else 0.0
 
 
-# ── Citation Faithfulness helpers ──
 
 _LEFT_RE = re.compile(r"\b(?:left|lt)\b", re.IGNORECASE)
 _RIGHT_RE = re.compile(r"\b(?:right|rt)\b", re.IGNORECASE)
@@ -254,13 +241,11 @@ def _laterality_matches(text_lat: str, token_lat: str) -> bool:
     """Check if text laterality claim matches token laterality."""
     if text_lat == token_lat:
         return True
-    # bilateral text is compatible with any token side
     if text_lat == "bilateral":
         return True
     return False
 
 
-# Normalized anatomy boxes (same as ProveTok_Main_experiment/simple_modules.py)
 _ANATOMY_BOXES_NORM = {
     "right lung":       {"x_min": 0.0, "x_max": 0.5, "y_min": 0.0, "y_max": 1.0, "z_min": 0.0, "z_max": 1.0},
     "left lung":        {"x_min": 0.5, "x_max": 1.0, "y_min": 0.0, "y_max": 1.0, "z_min": 0.0, "z_max": 1.0},
@@ -302,15 +287,10 @@ def compute_grounding_metrics(sentences: List[Dict], condition_dir: str) -> Dict
     if n == 0:
         return {}
 
-    # Overlap ratio threshold: a token is "grounded" if ≥50% of its volume
-    # falls inside the anatomy region.
     overlap_tau = 0.5
 
-    # Skip "bilateral" — its bbox is the entire volume, so all tokens
-    # trivially achieve 100% overlap. Including it inflates all metrics.
     SKIP_KEYWORDS = {"bilateral"}
 
-    # --- Overlap-based metrics (need _tokens_by_id) ---
     overlap_vals = []        # per-sentence mean overlap ratio
     hit1, hit4, hit8 = 0, 0, 0
     prec_nums, prec_dens = 0, 0
@@ -332,7 +312,6 @@ def compute_grounding_metrics(sentences: List[Dict], condition_dir: str) -> Dict
 
         n_grounding_eligible += 1
 
-        # Compute overlap ratio for each cited token
         overlaps = []
         for tid in cited_ids:
             tok = tokens_by_id.get(tid)
@@ -344,7 +323,6 @@ def compute_grounding_metrics(sentences: List[Dict], condition_dir: str) -> Dict
         if overlaps:
             overlap_vals.append(np.mean(overlaps))  # mean overlap for this sentence
 
-        # Hit@k: does top-k contain at least one token with overlap ≥ tau?
         if len(overlaps) >= 1 and max(overlaps[:1]) >= overlap_tau:
             hit1 += 1
         if len(overlaps) >= 4 and max(overlaps[:4]) >= overlap_tau:
@@ -352,11 +330,9 @@ def compute_grounding_metrics(sentences: List[Dict], condition_dir: str) -> Dict
         if max(overlaps) >= overlap_tau:  # hit@8 (or whatever k is)
             hit8 += 1
 
-        # Routing precision: fraction of cited tokens with overlap ≥ tau
         prec_nums += sum(1 for ov in overlaps if ov >= overlap_tau)
         prec_dens += len(overlaps)
 
-    # --- Laterality accuracy (from evidence card + R1 violations) ---
     lat_correct = 0
     lat_total = 0
     for s in sentences:
@@ -371,14 +347,10 @@ def compute_grounding_metrics(sentences: List[Dict], condition_dir: str) -> Dict
         if not has_r1:
             lat_correct += 1
 
-    # --- Violation-free rate ---
     n_viol_free = sum(1 for s in sentences if not s.get("violations"))
 
-    # --- Citation Faithfulness (text-to-token alignment) ---
-    # For generated sentences: does the text laterality match cited token positions?
     cf_match = 0
     cf_total = 0
-    # Depth faithfulness: does the text depth match token depth levels?
     df_match = 0
     df_total = 0
 
@@ -394,10 +366,8 @@ def compute_grounding_metrics(sentences: List[Dict], condition_dir: str) -> Dict
         if not tokens_by_id or not cited_ids:
             continue
 
-        # Laterality faithfulness
         text_lat = _parse_text_laterality(text)
         if text_lat and text_lat != "bilateral":
-            # Get actual token bboxes
             tok_bboxes = []
             for tid in cited_ids:
                 tok = tokens_by_id.get(tid)
@@ -409,8 +379,6 @@ def compute_grounding_metrics(sentences: List[Dict], condition_dir: str) -> Dict
                 if _laterality_matches(text_lat, token_lat):
                     cf_match += 1
 
-        # Depth faithfulness: check if text mentions specific depth terms
-        # and cited tokens are at appropriate levels
         ec = s.get("evidence_card", {})
         level_hist = ec.get("level_histogram", {})
         if level_hist:
@@ -435,7 +403,6 @@ def compute_grounding_metrics(sentences: List[Dict], condition_dir: str) -> Dict
         "depth_faith_n": df_total,
     }
 
-    # Overlap-based metrics (only available when tokens were loaded)
     if overlap_vals:
         result["mean_overlap"] = round(np.mean(overlap_vals), 3)
         result["hit_at_1"] = round(hit1 / n_grounding_eligible * 100, 1)
@@ -446,7 +413,6 @@ def compute_grounding_metrics(sentences: List[Dict], condition_dir: str) -> Dict
     return result
 
 
-# ── NLG metrics (simplified — use pre-computed if available) ──
 
 def load_precomputed_nlg(csv_path: Path) -> Dict[str, Dict[str, float]]:
     """Load NLG metrics from pre-computed CSV."""
@@ -465,9 +431,6 @@ def load_precomputed_nlg(csv_path: Path) -> Dict[str, Dict[str, float]]:
     return result
 
 
-# ═══════════════════════════════════════════
-# TABLE 2: Ablation table
-# ═══════════════════════════════════════════
 
 def generate_table2(nlg_csv: Optional[Path] = None):
     """Generate Table 2 data and LaTeX."""
@@ -505,7 +468,6 @@ def generate_table2(nlg_csv: Optional[Path] = None):
         }
         rows.append(row)
 
-        # Print summary with grounding metrics
         ovl_str = f"Ovl={grounding.get('mean_overlap', 'N/A')}"
         prec_str = f"Prec={grounding.get('routing_precision', 'N/A')}"
         cf_str = f"CF={grounding.get('citation_faith', 'N/A')}"
@@ -515,19 +477,16 @@ def generate_table2(nlg_csv: Optional[Path] = None):
               f"{ovl_str} {prec_str} {cf_str} {df_str} | "
               f"BLEU-4={nlg.get('BLEU-4', 'N/A')}")
 
-    # Generate LaTeX
     print("\n--- LaTeX ---")
     latex = _table2_latex(rows)
     print(latex)
 
-    # Save
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     with open(OUT_DIR / "table2_ablation.tex", "w") as f:
         f.write(latex)
     with open(OUT_DIR / "table2_data.json", "w") as f:
         json.dump(rows, f, indent=2, default=str)
 
-    # Save grounding metrics separately for Table 3 design
     grounding_keys = [
         "label", "desc", "grounding_eligible",
         "mean_overlap", "hit_at_1", "hit_at_4", "hit_at_8",
@@ -588,7 +547,6 @@ def _table2_latex(rows: List[Dict]) -> str:
         rl = f"{row['ROUGE-L']:.3f}" if row.get("ROUGE-L") is not None else "—"
         mtr = f"{row['METEOR']:.3f}" if row.get("METEOR") is not None else "—"
 
-        # Bold best row
         if label == best_label:
             line = (f"\\textbf{{{label}}} & \\textbf{{{desc}}} "
                     f"& \\textbf{{{vr}}} & \\textbf{{{r1}}} & \\textbf{{{r3}}} "
@@ -601,7 +559,6 @@ def _table2_latex(rows: List[Dict]) -> str:
                     f"& {c_llm} & {avg_k} "
                     f"& {b4} & {rl} & {mtr} \\\\")
 
-        # Add midrule before generation stages
         if label == "B2":
             lines.append(r"\midrule")
             lines.append(r"\multicolumn{12}{l}{\textit{+ LLM Generation (Stage 3c--5)}} \\")
@@ -614,9 +571,6 @@ def _table2_latex(rows: List[Dict]) -> str:
     return "\n".join(lines)
 
 
-# ═══════════════════════════════════════════
-# FIGURE 1: Waterfall / Step Plot
-# ═══════════════════════════════════════════
 
 def plot_waterfall(rows: List[Dict]):
     """Create waterfall/step plot of ablation chain."""
@@ -631,7 +585,6 @@ def plot_waterfall(rows: List[Dict]):
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), sharey=False)
 
-    # Left panel: Violation rate (%)
     ax1 = axes[0]
     colors = []
     for i, label in enumerate(labels):
@@ -650,12 +603,10 @@ def plot_waterfall(rows: List[Dict]):
     ax1.axhline(y=viol_rates[labels.index("B2'v2")], color="#2196F3",
                 linestyle="--", alpha=0.5, linewidth=1)
 
-    # Add value labels
     for bar, val in zip(bars1, viol_rates):
         ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
                 f"{val:.1f}", ha="center", va="bottom", fontsize=8)
 
-    # Right panel: R1 and R3 stacked
     ax2 = axes[1]
     x = np.arange(len(labels))
     width = 0.35
@@ -676,9 +627,6 @@ def plot_waterfall(rows: List[Dict]):
     print(f"  Saved {OUT_DIR}/fig1_waterfall.pdf")
 
 
-# ═══════════════════════════════════════════
-# FIGURE 2: Budget Sweep (k vs faithfulness)
-# ═══════════════════════════════════════════
 
 def plot_budget_sweep():
     """Budget sweep: k_per_sentence vs violation rate."""
@@ -713,7 +661,6 @@ def plot_budget_sweep():
 
     fig, ax1 = plt.subplots(figsize=(7, 4.5))
 
-    # Primary axis: violation rate
     color_viol = "#E53935"
     ax1.plot(ks, viol_rates, "o-", color=color_viol, linewidth=2, markersize=8,
              label="Violation Rate (%)", zorder=3)
@@ -722,7 +669,6 @@ def plot_budget_sweep():
     ax1.tick_params(axis="y", labelcolor=color_viol)
     ax1.set_xticks(ks)
 
-    # Highlight optimal k=8
     if 8 in ks:
         idx = ks.index(8)
         ax1.axvline(x=8, color="gray", linestyle="--", alpha=0.4)
@@ -732,7 +678,6 @@ def plot_budget_sweep():
                      fontsize=9, ha="center",
                      arrowprops=dict(arrowstyle="->", color="gray"))
 
-    # Secondary axis: R1 and R3 counts
     ax2 = ax1.twinx()
     ax2.plot(ks, r1_counts, "s--", color="#1976D2", linewidth=1.5, markersize=6,
              alpha=0.7, label="R1 (Laterality)")
@@ -741,7 +686,6 @@ def plot_budget_sweep():
     ax2.set_ylabel("Violation Count", fontsize=12, color="gray")
     ax2.tick_params(axis="y", labelcolor="gray")
 
-    # Combined legend
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left", fontsize=9)
@@ -754,9 +698,6 @@ def plot_budget_sweep():
     print(f"  Saved {OUT_DIR}/fig2_budget_sweep.pdf")
 
 
-# ═══════════════════════════════════════════
-# FIGURE 3: Counterfactual Sensitivity
-# ═══════════════════════════════════════════
 
 def run_counterfactual_analysis():
     """
@@ -772,7 +713,6 @@ def run_counterfactual_analysis():
     print("FIGURE 3: Counterfactual Sensitivity Analysis")
     print("=" * 80)
 
-    # Load actual sanity check results
     sanity_path = ROOT / "outputs" / "metric_sanity_check.json"
     if not sanity_path.exists():
         print("  No metric_sanity_check.json found, skipping.")
@@ -789,7 +729,6 @@ def run_counterfactual_analysis():
     n_sentences = results[0].get("total_sentences", 0)
     print(f"  Using actual experimental data: {n_sentences} sentences")
 
-    # Build perturbation data from actual results
     perturbation_data = {}
     for r in results:
         name = r["perturbation"]
@@ -806,7 +745,6 @@ def run_counterfactual_analysis():
     for name, d in perturbation_data.items():
         print(f"    {name}: viol={d['viol_rate']:.2f}% R1={d['R1']} R3={d['R3']} R6b={d['R6b']}")
 
-    # ── Figure 3a: Overall violation rate bar chart ──
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
 
     display_names = {
@@ -834,7 +772,6 @@ def run_counterfactual_analysis():
     ax1.set_ylabel("Violation Rate (%)", fontsize=11)
     ax1.set_title("(a) Overall Violation Rate", fontsize=12)
 
-    # ── Figure 3b: Per-rule breakdown ──
     ax2 = axes[1]
     x = np.arange(len(order))
     width = 0.25
@@ -857,7 +794,6 @@ def run_counterfactual_analysis():
     plt.close(fig)
     print(f"  Saved {OUT_DIR}/fig3_counterfactual.pdf")
 
-    # Save data
     with open(OUT_DIR / "fig3_counterfactual_data.json", "w") as f:
         json.dump({
             "source": "metric_sanity_check.json (actual experiments)",
@@ -866,13 +802,9 @@ def run_counterfactual_analysis():
         }, f, indent=2)
 
 
-# ═══════════════════════════════════════════
-# Main
-# ═══════════════════════════════════════════
 
 def _build_ablation_chain(data_dir: Path) -> List[Tuple[str, str, str]]:
     """Build ablation chain with directory names resolved for the data source."""
-    # Auto-detect: if data_dir contains 5k_ablation, use 5K mapping
     dir_name = data_dir.name
     if "5k" in dir_name.lower():
         dirname_map = _DIRNAME_5K
@@ -905,7 +837,6 @@ def main():
                         help="Path to pre-computed NLG metrics CSV")
     args = parser.parse_args()
 
-    # Set data directory
     if args.data_dir:
         ABLATION_DIR = Path(args.data_dir)
         if not ABLATION_DIR.is_absolute():
@@ -913,7 +844,6 @@ def main():
     else:
         ABLATION_DIR = ROOT / "outputs" / "ablation_routing_2x2"
 
-    # Set output directory
     if args.out_dir:
         OUT_DIR = Path(args.out_dir)
         if not OUT_DIR.is_absolute():
@@ -925,25 +855,20 @@ def main():
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Build chain
     ABLATION_CHAIN = _build_ablation_chain(ABLATION_DIR)
     print(f"Data dir:   {ABLATION_DIR}")
     print(f"Output dir: {OUT_DIR}")
     print(f"Chain:      {[c[0] for c in ABLATION_CHAIN]}")
     print()
 
-    # Table 2 + waterfall data
     nlg_csv = Path(args.nlg_csv) if args.nlg_csv else None
     rows = generate_table2(nlg_csv=nlg_csv)
 
     if rows:
-        # Figure 1: Waterfall
         plot_waterfall(rows)
 
-    # Figure 2: Budget sweep
     plot_budget_sweep()
 
-    # Figure 3: Counterfactual
     run_counterfactual_analysis()
 
     print("\n" + "=" * 80)
@@ -953,3 +878,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

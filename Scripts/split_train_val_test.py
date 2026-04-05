@@ -65,7 +65,6 @@ def main() -> None:
     ratios = tuple(args.ratios)
     assert abs(sum(ratios) - 1.0) < 1e-6, f"Ratios must sum to 1.0, got {sum(ratios)}"
 
-    # Collect cases per dataset
     datasets = sorted([d.name for d in cases_root.iterdir() if d.is_dir()])
     print(f"Datasets: {datasets}")
 
@@ -85,7 +84,6 @@ def main() -> None:
         all_val.extend(f"{ds}/{cid}" for cid in val)
         all_test.extend(f"{ds}/{cid}" for cid in test)
 
-    # Sort for reproducibility
     all_train.sort()
     all_val.sort()
     all_test.sort()

@@ -1,26 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ═══════════════════════════════════════════════════════════════════
-# Mediastinum 局部阈值 Sweep
-# ═══════════════════════════════════════════════════════════════════
-# 问题：mediastinum 在当前配置下全部被标记为违规
-# 策略：围绕 0.0442 做局部密扫，测试 tau_iou 的 5 个点
-# 阈值点：0.03, 0.035, 0.04, 0.045, 0.05
-#
-# 重点观察指标：
-#   - R2_ANATOMY 总数
-#   - LLM confirmed 数量
-#   - mediastinum confirmed 比例
-#   - 总体 violation_sentence_rate
-# ═══════════════════════════════════════════════════════════════════
 
-ROOT="/data/ProveTok_ACM"
+ROOT="/data/MARIE"
 OUT_ROOT="${ROOT}/outputs/mediastinum_tau_sweep_50"
 CACHE_ROOT="${ROOT}/.cache"
 HF_HOME_DIR="${ROOT}/.hf"
 
-# 5 个阈值点围绕 0.0442
 TAU_VALUES=("0.03" "0.035" "0.04" "0.045" "0.05")
 
 mkdir -p "${OUT_ROOT}"
@@ -37,11 +23,9 @@ export TRANSFORMERS_CACHE="${CACHE_ROOT}/huggingface/transformers"
 export SENTENCE_TRANSFORMERS_HOME="${CACHE_ROOT}/sentence_transformers"
 
 source "${ROOT}/miniconda3/etc/profile.d/conda.sh"
-conda activate "${ROOT}/miniconda3/envs/provetok"
+conda activate "${ROOT}/miniconda3/envs/MARIE"
 
-# 开始 sweep
 for tau in "${TAU_VALUES[@]}"; do
-  # 生成目录名：tau 去掉小数点 (0.03 -> tau003, 0.045 -> tau0045)
   tau_str="tau$(echo "${tau}" | tr -d '.')"
   OUT_DIR="${OUT_ROOT}/${tau_str}"
 
@@ -54,7 +38,6 @@ for tau in "${TAU_VALUES[@]}"; do
   rm -rf "${OUT_DIR}"
   mkdir -p "${OUT_DIR}"
 
-  # Step 1: Probe checkpoint
   echo "[${tau_str}] Step 1: Probing checkpoint..."
   python "${ROOT}/Scripts/ckpt_probe.py" \
     --ckpt_path "${ROOT}/checkpoints/swinunetr.ckpt" \
@@ -63,7 +46,6 @@ for tau in "${TAU_VALUES[@]}"; do
     --feature_size 48 \
     --save_report "${OUT_DIR}/ckpt_probe_report.json"
 
-  # Step 2: Run mini experiment with current tau_iou
   echo "[${tau_str}] Step 2: Running mini experiment..."
   python "${ROOT}/run_mini_experiment.py" \
     --ctrate_csv "${ROOT}/manifests/ctrate_manifest.csv" \
@@ -96,7 +78,6 @@ for tau in "${TAU_VALUES[@]}"; do
     --llm_judge_hf_torch_dtype bfloat16 \
     --llm_judge_alpha 0.5 2>&1 | tee "${OUT_DIR}/run.log"
 
-  # Step 3: Validate outputs
   echo "[${tau_str}] Step 3: Validating outputs..."
   python "${ROOT}/validate_stage0_4_outputs.py" \
     --out_dir "${OUT_DIR}" \
@@ -107,7 +88,6 @@ for tau in "${TAU_VALUES[@]}"; do
   echo "[${tau_str}] ✓ Complete"
 done
 
-# 运行完成后，生成汇总分析
 echo ""
 echo "═══════════════════════════════════════════════════════════════════"
 echo "  All 5 sweep runs completed!"
@@ -126,3 +106,4 @@ echo "  #   - anatomy_r2_breakdown.csv      (R2_ANATOMY 按解剖结构分组)"
 echo "  #   - anatomy_all_violation_rate.csv (所有解剖结构的违规率)"
 echo "  #   - sentence_detail.csv           (句子级详情，可筛选 mediastinum)"
 echo ""
+

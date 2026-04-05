@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# ============================================================
-# Stage 0-5 with Trained W_proj — 5k test split evaluation
-#   Uses W_proj trained on 4000 train cases
-#   Routing: spatial_filter_semantic_rerank (E1)
-#
-# 用法:
-#   bash Scripts/run_stage0_5_5k_trained_wproj.sh         # 跑 test (default)
-#   bash Scripts/run_stage0_5_5k_trained_wproj.sh valid    # 跑 valid
-# ============================================================
 set -euo pipefail
 
 SPLIT="${1:-test}"

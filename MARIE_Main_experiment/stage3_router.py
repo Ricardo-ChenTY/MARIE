@@ -46,10 +46,6 @@ class Router:
             return base
         iou = token.bbox.iou(anatomy_bbox)
         if self.cfg.anatomy_spatial_routing:
-            # Anatomy-primary mode: IoU dominates, semantic dot is a small tiebreaker.
-            # Addresses cross-modal alignment gap: w_proj is identity (untrained),
-            # so dot(text_query, image_feature) is unreliable. Spatial IoU is the
-            # only grounded signal when anatomy_bbox is available.
             return iou + self.cfg.anatomy_tiebreak_eps * base
         return base + self.cfg.lambda_spatial * iou  # Eq(11)
 
@@ -95,16 +91,12 @@ class Router:
                 lo, hi = expected_level_range
                 if not (lo <= t.level <= hi):
                     passes_filter = False
-            # Laterality hard filter: when sentence claims left/right,
-            # reject tokens on the opposite side. Cross-midline tokens pass.
             if sentence_laterality in ("left", "right"):
                 tx = (t.bbox.x_min + t.bbox.x_max) / 2.0
                 if sentence_laterality == "left" and tx < x_mid - lateral_tolerance:
                     passes_filter = False
                 elif sentence_laterality == "right" and tx > x_mid + lateral_tolerance:
                     passes_filter = False
-            # Tokens passing filter get score in [1, 2], others in [0, 1)
-            # This guarantees any filtered token ranks above any unfiltered one.
             if passes_filter:
                 scores[t.token_id] = 1.0 + (semantic + 1.0) / 2.0  # map [-1,1] → [1,2]
             else:

@@ -1,19 +1,8 @@
 #!/usr/bin/env bash
-# ============================================================
-# Step 3: 训练 W_proj（InfoNCE，Stage 3c 前置）
-#
-# 前置条件:
-#   先跑过 Stage 0-4，有 outputs/stage0_4_450/cases/ 目录
-#
-# 用法:
-#   bash Scripts/run_wprojection_train.sh
-#   bash Scripts/run_wprojection_train.sh --cases_dir /custom/path/cases
-# ============================================================
 set -euo pipefail
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# ─── 默认参数（可通过命令行覆盖）────────────────────────
 CASES_DIR="${PROJ_ROOT}/outputs/stage0_4_450/cases"
 OUT_DIR="${PROJ_ROOT}/outputs/wprojection"
 EPOCHS=20
@@ -21,9 +10,7 @@ BATCH_SIZE=32
 LR=1e-3
 TAU=0.07
 DEVICE=cuda
-# ─────────────────────────────────────────────────────────
 
-# 支持 --cases_dir 参数覆盖默认路径
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cases_dir) CASES_DIR="$2"; shift 2 ;;
@@ -34,7 +21,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# 检查 cases 目录
 if [ ! -d "${CASES_DIR}" ]; then
   echo "❌ cases 目录不存在: ${CASES_DIR}"
   echo ""

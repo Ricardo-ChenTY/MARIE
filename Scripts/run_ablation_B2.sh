@@ -1,19 +1,8 @@
 #!/usr/bin/env bash
-# ============================================================
-# Phase B2: E1 routing + Stage 3c ON (token-gated LLM generation)
-#
-# Base: E1 (trained W_proj + spatial filter + semantic rerank, k=8)
-# Change: Stage 3c enabled (Llama-3.1-8B-Instruct via HuggingFace)
-# Stage 5: OFF
-#
-# Usage:
-#   tmux new-session -s B2 'bash Scripts/run_ablation_B2.sh 2>&1 | tee logs/B2.log'
-# ============================================================
 set -euo pipefail
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# ─── Paths ────────────────────────────────────────
 CTRATE_CSV="${PROJ_ROOT}/manifests/ctrate_test.csv"
 RADGENOME_CSV="${PROJ_ROOT}/manifests/radgenome_test.csv"
 ENCODER_CKPT="${PROJ_ROOT}/checkpoints/swinunetr.ckpt"
@@ -22,7 +11,6 @@ LLAMA_MODEL="${PROJ_ROOT}/models/Llama-3.1-8B-Instruct"
 OUT_DIR="${PROJ_ROOT}/outputs/ablation_routing_2x2/B2_E1_stage3c"
 CACHE_ROOT="${PROJ_ROOT}/.cache"
 HF_HOME_DIR="${PROJ_ROOT}/.hf"
-# ──────────────────────────────────────────────────
 
 mkdir -p "${OUT_DIR}"
 mkdir -p \
@@ -37,10 +25,9 @@ export HUGGINGFACE_HUB_CACHE="${CACHE_ROOT}/huggingface/hub"
 export TRANSFORMERS_CACHE="${CACHE_ROOT}/huggingface/transformers"
 export SENTENCE_TRANSFORMERS_HOME="${CACHE_ROOT}/sentence_transformers"
 
-# Activate conda environment
 CONDA_BASE="${PROJ_ROOT}/miniconda3"
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
-conda activate provetok
+conda activate MARIE
 
 echo "================================================================"
 echo "Phase B2: E1 routing + Stage 3c ON"
@@ -86,3 +73,4 @@ python "${PROJ_ROOT}/run_mini_experiment.py" \
 echo ""
 echo ">>> B2 done"
 echo "Results: ${OUT_DIR}/summary.csv"
+

@@ -185,7 +185,6 @@ class AdaptiveOctreeSplitter:
             h_raw.append(c.h_i_raw)
             p_raw.append(c.p_i_raw)
 
-        # Per-level quantile rank (CP Eq(4), frozen per round).
         by_level: Dict[int, List[int]] = {}
         for idx, c in enumerate(cells):
             by_level.setdefault(c.level, []).append(idx)
@@ -230,7 +229,6 @@ class AdaptiveOctreeSplitter:
         ]
         self._recompute_scores(vol, feat, leaves, artifact_state)
 
-        # Adaptive split loop
         while len(leaves) < token_budget_b:
             leaves_sorted = sorted(leaves, key=lambda c: (-c.score, c.level, c.bounds.z0, c.bounds.y0, c.bounds.x0))
             best = None
@@ -259,7 +257,6 @@ class AdaptiveOctreeSplitter:
         leaves_sorted = sorted(leaves, key=lambda c: (-c.score, c.bounds.z0, c.bounds.y0, c.bounds.x0))
         selected = _nms_cells(leaves_sorted, self.cfg.nms_iou_threshold, top_b=token_budget_b)
 
-        # Boundary-aware export
         raw_feats = [c.feature for c in selected]
         blended_feats: List[np.ndarray] = []
         for i, c in enumerate(selected):
@@ -271,7 +268,6 @@ class AdaptiveOctreeSplitter:
             blend = boundary_context_blend(c.feature.tolist(), [n.tolist() for n in neigh], self.cfg.beta)
             blended_feats.append(np.asarray(blend, dtype=np.float32))
 
-        # Stable token ids by geometry order.
         ordered = sorted(
             list(zip(selected, blended_feats)),
             key=lambda x: (x[0].level, x[0].bounds.z0, x[0].bounds.y0, x[0].bounds.x0),

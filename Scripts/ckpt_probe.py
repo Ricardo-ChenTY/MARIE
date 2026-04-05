@@ -91,7 +91,7 @@ def _shape_tuple(x: torch.Tensor) -> Tuple[int, ...]:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Quick probe for SwinUNETR checkpoint compatibility with current ProveTok config. "
+            "Quick probe for SwinUNETR checkpoint compatibility with current MARIE config. "
             "It checks whether run_mini_experiment's current Stage-1 loader can actually load weights."
         )
     )
@@ -142,7 +142,6 @@ def main() -> int:
     load_success = False
     filtered_state = _filter_compatible_state_dict(model_state, ckpt_state)
     try:
-        # Mimic current Stage-1 logic exactly (prefix normalization + shape filtering + strict=False).
         model.load_state_dict(filtered_state, strict=False)
         load_success = True
     except Exception as exc:  # pragma: no cover
@@ -217,3 +216,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

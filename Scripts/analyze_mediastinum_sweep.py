@@ -28,14 +28,12 @@ sns.set_theme(style="whitegrid", font_scale=1.0)
 def parse_run_mediastinum_stats(run_dir: Path) -> dict:
     """解析单个运行目录中 mediastinum 的统计数据"""
 
-    # 读取 run_meta 获取参数
     run_meta_path = run_dir / "run_meta.json"
     tau_iou = None
     if run_meta_path.exists():
         run_meta = json.loads(run_meta_path.read_text(encoding="utf-8"))
         tau_iou = run_meta.get("tau_iou")
 
-    # 统计变量
     mediastinum_sentences = 0
     mediastinum_violations = 0
     mediastinum_r2_anatomy = 0
@@ -46,7 +44,6 @@ def parse_run_mediastinum_stats(run_dir: Path) -> dict:
     total_r2_anatomy = 0
     total_llm_confirmed = 0
 
-    # 遍历所有 trace.jsonl 文件
     cases_dir = run_dir / "cases"
     if not cases_dir.exists():
         return {
@@ -78,25 +75,21 @@ def parse_run_mediastinum_stats(run_dir: Path) -> dict:
                 vios = obj.get("violations") or []
                 j5 = obj.get("stage5_judgements") or []
 
-                # 统计总体违规
                 if vios:
                     total_violations += 1
 
-                # 统计 R2_ANATOMY
                 r2_count = sum(
                     1 for v in vios
                     if isinstance(v, dict) and v.get("rule_id") == "R2_ANATOMY"
                 )
                 total_r2_anatomy += r2_count
 
-                # 统计 LLM confirmed
                 llm_confirmed = sum(
                     1 for j in j5
                     if isinstance(j, dict) and j.get("confirmed")
                 )
                 total_llm_confirmed += llm_confirmed
 
-                # 如果是 mediastinum
                 if "mediastinum" in anatomy:
                     mediastinum_sentences += 1
 
@@ -139,7 +132,6 @@ def analyze_anatomy_breakdown(sweep_root: Path) -> dict[str, pd.DataFrame]:
         if not run_dir.is_dir():
             continue
 
-        # 读取 tau_iou
         run_meta_path = run_dir / "run_meta.json"
         tau_iou = None
         if run_meta_path.exists():
@@ -148,7 +140,6 @@ def analyze_anatomy_breakdown(sweep_root: Path) -> dict[str, pd.DataFrame]:
 
         anatomy_data[run_dir.name]["tau_iou"] = tau_iou
 
-        # 统计每个解剖结构
         cases_dir = run_dir / "cases"
         if not cases_dir.exists():
             continue
@@ -174,7 +165,6 @@ def analyze_anatomy_breakdown(sweep_root: Path) -> dict[str, pd.DataFrame]:
                     if vios:
                         anatomy_data[run_dir.name]["anatomy_violations"][anatomy] += 1
 
-    # 转换为 DataFrame
     result = {}
     for run_name, data in anatomy_data.items():
         rows = []
@@ -212,9 +202,6 @@ def main():
     export_dir = sweep_root / "mediastinum_analysis"
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    # ═══════════════════════════════════════════════════════════
-    # Part 1: Mediastinum 专项统计
-    # ═══════════════════════════════════════════════════════════
     print("\n" + "="*70)
     print("  Mediastinum 专项统计")
     print("="*70)
@@ -232,18 +219,13 @@ def main():
     sweep_df = pd.DataFrame(sweep_stats).sort_values("tau_iou")
     print(sweep_df.to_string(index=False))
 
-    # 保存 CSV
     csv_path = export_dir / "mediastinum_sweep_summary.csv"
     sweep_df.to_csv(csv_path, index=False)
     print(f"\n✓ Saved: {csv_path}")
 
-    # ═══════════════════════════════════════════════════════════
-    # Part 2: 可视化 - Mediastinum 违规率曲线
-    # ═══════════════════════════════════════════════════════════
     if len(sweep_df) > 1:
         fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
-        # 1. Mediastinum violation rate
         ax = axes[0, 0]
         ax.plot(sweep_df["tau_iou"], sweep_df["mediastinum_violation_rate"],
                 marker="o", linewidth=2, markersize=8, color="#E74C3C")
@@ -254,13 +236,11 @@ def main():
         ax.grid(True, alpha=0.3)
         ax.legend()
 
-        # 添加数值标签
         for _, row in sweep_df.iterrows():
             ax.text(row["tau_iou"], row["mediastinum_violation_rate"] + 0.02,
                    f"{row['mediastinum_violation_rate']:.3f}",
                    ha="center", fontsize=9)
 
-        # 2. Mediastinum R2_ANATOMY count
         ax = axes[0, 1]
         ax.plot(sweep_df["tau_iou"], sweep_df["mediastinum_r2_anatomy"],
                 marker="s", linewidth=2, markersize=8, color="#3498DB")
@@ -274,7 +254,6 @@ def main():
                    f"{row['mediastinum_r2_anatomy']}",
                    ha="center", fontsize=9)
 
-        # 3. Mediastinum LLM confirmed
         ax = axes[1, 0]
         ax.plot(sweep_df["tau_iou"], sweep_df["mediastinum_llm_confirmed"],
                 marker="^", linewidth=2, markersize=8, color="#F39C12")
@@ -288,7 +267,6 @@ def main():
                    f"{row['mediastinum_llm_confirmed']}",
                    ha="center", fontsize=9)
 
-        # 4. 对比：Mediastinum vs Total violation rate
         ax = axes[1, 1]
         ax.plot(sweep_df["tau_iou"], sweep_df["mediastinum_violation_rate"],
                 marker="o", linewidth=2, markersize=8, color="#E74C3C",
@@ -311,16 +289,12 @@ def main():
         plt.close(fig)
         print(f"✓ Saved: {fig_path}")
 
-    # ═══════════════════════════════════════════════════════════
-    # Part 3: 解剖结构违规率分析
-    # ═══════════════════════════════════════════════════════════
     print("\n" + "="*70)
     print("  所有解剖结构违规率分析")
     print("="*70)
 
     anatomy_breakdown = analyze_anatomy_breakdown(sweep_root)
 
-    # 找出 top 违规的解剖结构
     all_anatomy_violations = Counter()
     for run_name, df in anatomy_breakdown.items():
         for _, row in df.iterrows():
@@ -328,29 +302,24 @@ def main():
 
     top_anatomy = [k for k, v in all_anatomy_violations.most_common(10)]
 
-    # 为每个 tau 生成报告
     for run_name in sorted(anatomy_breakdown.keys()):
         df = anatomy_breakdown[run_name]
         print(f"\n{run_name}:")
         print(f"  Top 10 违规解剖结构:")
         print(df.head(10).to_string(index=False, max_colwidth=30))
 
-        # 保存完整 CSV
         csv_path = export_dir / f"{run_name}_anatomy_breakdown.csv"
         df.to_csv(csv_path, index=False)
 
-    # 绘制 top anatomy 在不同 tau 下的变化
     if top_anatomy and len(anatomy_breakdown) > 1:
         fig, ax = plt.subplots(figsize=(12, 6))
 
-        # 准备数据
         tau_values = []
         anatomy_rates = {anat: [] for anat in top_anatomy}
 
         for run_name in sorted(anatomy_breakdown.keys()):
             df = anatomy_breakdown[run_name]
 
-            # 获取 tau_iou
             tau = None
             run_meta_path = sweep_root / run_name / "run_meta.json"
             if run_meta_path.exists():
@@ -367,7 +336,6 @@ def main():
                     else:
                         anatomy_rates[anat].append(0.0)
 
-        # 绘制
         colors = sns.color_palette("husl", len(top_anatomy))
         for anat, color in zip(top_anatomy, colors):
             if len(anatomy_rates[anat]) == len(tau_values):
@@ -386,9 +354,6 @@ def main():
         plt.close(fig)
         print(f"\n✓ Saved: {fig_path}")
 
-    # ═══════════════════════════════════════════════════════════
-    # 总结
-    # ═══════════════════════════════════════════════════════════
     print("\n" + "="*70)
     print("  分析完成")
     print("="*70)
@@ -399,7 +364,6 @@ def main():
     print(f"  - tau*_anatomy_breakdown.csv        (各 tau 解剖结构详情)")
     print(f"  - top_anatomy_tau_curves.png        (Top 10 解剖结构对比)")
 
-    # 找出最优 tau
     best_idx = sweep_df["mediastinum_violation_rate"].idxmin()
     best_row = sweep_df.loc[best_idx]
     print("\n推荐配置 (基于 mediastinum_violation_rate 最低):")

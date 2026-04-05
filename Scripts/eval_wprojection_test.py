@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 
 from train_wprojection import build_dataset, infonce_batch, _eval_loss
-from ProveTok_Main_experiment.text_encoder import make_text_encoder
+from MARIE_Main_experiment.text_encoder import make_text_encoder
 
 
 def main() -> None:
@@ -36,35 +36,29 @@ def main() -> None:
     parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 
-    # Load text encoder
     print("Loading text encoder...")
     enc = make_text_encoder("semantic", st_model_name=args.text_encoder_model,
                             st_device=args.text_encoder_device)
 
-    # Load test data
     print(f"Loading test data from manifest: {args.test_manifest}")
     test_pairs = build_dataset(args.cases_dir, enc, manifest=args.test_manifest)
     if not test_pairs:
         raise RuntimeError("No test pairs found.")
     print(f"Test pairs: {len(test_pairs)}")
 
-    # Probe dims
     d_q = test_pairs[0][0].shape[0]
     d_v = test_pairs[0][1].shape[-1]
     print(f"Dims: d_q={d_q}, d_v={d_v}")
 
-    # Load trained W_proj
     w = torch.load(args.w_proj_path, weights_only=True)
     w_proj = nn.Linear(d_v, d_q, bias=False).to(args.device)
     w_proj.weight.data.copy_(w)
     print(f"Loaded trained W_proj from {args.w_proj_path} (shape {list(w.shape)})")
 
-    # Build identity baseline
     w_id = nn.Linear(d_v, d_q, bias=False).to(args.device)
     nn.init.eye_(w_id.weight[:min(d_q, d_v), :min(d_q, d_v)])
     print("Built identity baseline")
 
-    # Evaluate
     loss_trained = _eval_loss(test_pairs, w_proj, args.batch_size, args.tau, args.device)
     loss_identity = _eval_loss(test_pairs, w_id, args.batch_size, args.tau, args.device)
 
@@ -77,3 +71,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

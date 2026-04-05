@@ -1,17 +1,6 @@
 #!/usr/bin/env bash
-# ============================================================
-# Evaluate trained W_proj on 180 test cases (semantic routing)
-#
-# Comparison:
-#   Baseline (existing):  identity W_proj + anatomy_spatial_routing
-#   This run:             trained W_proj + semantic routing (Eq 6-8)
-#
-# Usage:
-#   bash Scripts/run_test_trained_wproj.sh
-# ============================================================
 set -euo pipefail
 
-# ─── Paths ────────────────────────────────────────
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CTRATE_CSV="${PROJ_ROOT}/manifests/ctrate_test.csv"
 RADGENOME_CSV="${PROJ_ROOT}/manifests/radgenome_test.csv"
@@ -21,7 +10,6 @@ MODEL_DIR="${PROJ_ROOT}/models/Llama-3.1-8B-Instruct"
 OUT_DIR="${PROJ_ROOT}/outputs/test_trained_wproj"
 CACHE_ROOT="${PROJ_ROOT}/.cache"
 HF_HOME_DIR="${PROJ_ROOT}/.hf"
-# ──────────────────────────────────────────────────
 
 mkdir -p "${OUT_DIR}"
 mkdir -p \
@@ -36,10 +24,9 @@ export HUGGINGFACE_HUB_CACHE="${CACHE_ROOT}/huggingface/hub"
 export TRANSFORMERS_CACHE="${CACHE_ROOT}/huggingface/transformers"
 export SENTENCE_TRANSFORMERS_HOME="${CACHE_ROOT}/sentence_transformers"
 
-# Activate conda environment
 CONDA_BASE="${PROJ_ROOT}/miniconda3"
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
-conda activate provetok
+conda activate MARIE
 
 echo "=========================================="
 echo "Test Set Evaluation: Trained W_proj"
@@ -89,3 +76,4 @@ python "${PROJ_ROOT}/run_mini_experiment.py" \
 echo ""
 echo "Done: ${OUT_DIR}"
 echo "Compare with baseline: outputs/stage0_5_llama_450/"
+

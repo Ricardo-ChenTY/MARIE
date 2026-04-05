@@ -1,19 +1,8 @@
 #!/usr/bin/env bash
-# ============================================================
-# D2: Evidence Card + Repair Executor ablation
-#
-# Same config as C2' (evcard) but with updated repair executor
-# that uses action-dispatched repair (drop_laterality, drop_depth,
-# reroute_same_side) instead of generic penalty+reroute.
-#
-# Usage:
-#   tmux new-session -s d2 'bash Scripts/run_ablation_D2_repair.sh 2>&1 | tee logs/d2_repair.log'
-# ============================================================
 set -euo pipefail
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# ─── Paths ────────────────────────────────────────
 CTRATE_CSV="${PROJ_ROOT}/manifests/ctrate_test.csv"
 RADGENOME_CSV="${PROJ_ROOT}/manifests/radgenome_test.csv"
 ENCODER_CKPT="${PROJ_ROOT}/checkpoints/swinunetr.ckpt"
@@ -21,7 +10,6 @@ W_PROJ_PATH="${PROJ_ROOT}/outputs_wprojection/w_proj.pt"
 LLAMA_MODEL="${PROJ_ROOT}/models/Llama-3.1-8B-Instruct"
 CACHE_ROOT="${PROJ_ROOT}/.cache"
 HF_HOME_DIR="${PROJ_ROOT}/.hf"
-# ──────────────────────────────────────────────────
 
 mkdir -p \
   "${CACHE_ROOT}/huggingface/hub" \
@@ -37,7 +25,7 @@ export SENTENCE_TRANSFORMERS_HOME="${CACHE_ROOT}/sentence_transformers"
 
 CONDA_BASE="${PROJ_ROOT}/miniconda3"
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
-conda activate provetok
+conda activate MARIE
 
 COMMON_FLAGS=(
   --ctrate_csv    "${CTRATE_CSV}"
@@ -95,3 +83,4 @@ echo ""
 echo "================================================================"
 echo "D2 Repair Executor Ablation complete."
 echo "================================================================"
+

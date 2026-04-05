@@ -30,12 +30,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from ProveTok_Main_experiment.text_encoder import make_text_encoder
+from MARIE_Main_experiment.text_encoder import make_text_encoder
 
 
-# ──────────────────────────────────────────────
-# Data loading
-# ──────────────────────────────────────────────
 
 def _load_case(case_dir: Path):
     """Load (sentence_text, topk_token_ids, token_features) for one case."""
@@ -89,7 +86,6 @@ def build_dataset(
         token_feats, sentences = result
 
         for text, topk_ids in sentences:
-            # Filter valid token ids
             valid_ids = [i for i in topk_ids if i < len(token_feats)]
             if not valid_ids:
                 continue
@@ -101,9 +97,6 @@ def build_dataset(
     return pairs
 
 
-# ──────────────────────────────────────────────
-# InfoNCE loss (batch version)
-# ──────────────────────────────────────────────
 
 def infonce_batch(
     queries: torch.Tensor,        # [N, d_q]
@@ -124,9 +117,6 @@ def infonce_batch(
     return nn.functional.cross_entropy(logits, labels)
 
 
-# ──────────────────────────────────────────────
-# Training loop
-# ──────────────────────────────────────────────
 
 def _eval_loss(
     pairs: List[Tuple[torch.Tensor, torch.Tensor]],
@@ -209,7 +199,6 @@ def train(
         avg_train = epoch_loss / max(n_batches, 1)
         train_log.append(avg_train)
 
-        # Validation
         avg_val = 0.0
         if val_pairs:
             avg_val = _eval_loss(val_pairs, w_proj, batch_size, tau, device)
@@ -219,7 +208,6 @@ def train(
                 best_val_loss = avg_val
                 best_epoch = epoch
                 no_improve = 0
-                # Save best checkpoint
                 if out_dir:
                     torch.save(w_proj.weight.data.cpu(), out_dir / "w_proj_best.pt")
             else:
@@ -235,12 +223,10 @@ def train(
                 f" | lr={scheduler.get_last_lr()[0]:.2e}{best_str}"
             )
 
-        # Early stopping
         if val_pairs and no_improve >= patience:
             print(f"Early stopping at epoch {epoch} (no improvement for {patience} epochs)")
             break
 
-    # Load best checkpoint if available
     if val_pairs and out_dir and (out_dir / "w_proj_best.pt").exists():
         best_weight = torch.load(out_dir / "w_proj_best.pt", weights_only=True)
         w_proj.weight.data.copy_(best_weight.to(device))
@@ -249,9 +235,6 @@ def train(
     return w_proj, train_log, val_log
 
 
-# ──────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train W_proj (InfoNCE) for Stage 3c.")
@@ -288,11 +271,9 @@ def main() -> None:
         st_device=args.text_encoder_device,
     )
 
-    # Probe dims
     _probe_q = text_encoder("hello world")
     d_q = len(_probe_q)
 
-    # Build train dataset
     train_pairs = build_dataset(args.cases_dir, text_encoder, manifest=args.train_manifest)
     if not train_pairs:
         raise RuntimeError(
@@ -300,14 +281,12 @@ def main() -> None:
             "Run Stage 0-4 first to generate trace.jsonl + tokens.pt files."
         )
 
-    # Build val dataset (optional)
     val_pairs = None
     if args.val_manifest:
         print("Loading validation set...")
         val_pairs = build_dataset(args.cases_dir, text_encoder, manifest=args.val_manifest)
         print(f"Val pairs: {len(val_pairs)}")
 
-    # Probe d_v from first pair
     d_v = train_pairs[0][1].shape[-1]
     print(f"Dims: d_q={d_q}, d_v={d_v}, n_train={len(train_pairs)}")
 
@@ -326,7 +305,6 @@ def main() -> None:
         out_dir=out_dir,
     )
 
-    # Save final
     torch.save(w_proj.weight.data.cpu(), out_dir / "w_proj.pt")
     np.save(str(out_dir / "w_proj.npy"), w_proj.weight.data.cpu().numpy())
     log_data = {
@@ -367,3 +345,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

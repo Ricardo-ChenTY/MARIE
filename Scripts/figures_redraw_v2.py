@@ -1,14 +1,3 @@
-# figures_redraw_v2.py
-# ProveTok paper figure redraw — publication-quality style
-#
-# Style references:
-#   - Grouped bar with bold data labels on top (ACM MM style)
-#   - Line plots with teal/orange, dashed baselines
-#   - Horizontal bars with hatching for ablation variants
-#   - Minimal spines, light grid, generous padding
-#
-# Run:   python Scripts/figures_redraw_v2.py
-# Out:   outputs/redrawn_figures/{*.png, *.pdf}
 
 from pathlib import Path
 import numpy as np
@@ -22,7 +11,6 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 EXPORT_WATERFALL = False
 
-# ── Palette (soft, print-friendly) ──
 C_BLUE   = "#7AAFDD"   # light steel blue
 C_GREEN  = "#8FBC8F"   # dark sea green
 C_CORAL  = "#E8927C"   # soft coral
@@ -37,7 +25,6 @@ EDGE_GREEN = "#5A8C5A"
 EDGE_CORAL = "#C06A56"
 
 
-# ── Global style ──
 def set_style():
     plt.rcParams.update({
         "figure.dpi": 150,
@@ -85,7 +72,6 @@ def save(fig, name):
     print(f"  -> {name}")
 
 
-# ── Helper: bar label (bold value on top) ──
 def bar_label(ax, bars, fmt="{:.2f}", offset=3, fontsize=8.5, bold=True):
     weight = "bold" if bold else "normal"
     for bar in bars:
@@ -95,9 +81,6 @@ def bar_label(ax, bars, fmt="{:.2f}", offset=3, fontsize=8.5, bold=True):
                 fontsize=fontsize, fontweight=weight)
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 1) tau_iou critical-point sweep
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def plot_tau_sweep():
     tau = np.array([0.03, 0.035, 0.04, 0.045, 0.05])
     mediastinum = np.array([0.0, 0.0, 0.0, 100.0, 100.0])
@@ -126,7 +109,6 @@ def plot_tau_sweep():
     ax.grid(True, axis="y")
     ax.legend(frameon=False, loc="center left")
 
-    # labels — stagger to avoid overlap
     for i, (x, y) in enumerate(zip(tau, mediastinum)):
         ax.annotate(f"{y:.0f}%", (x, y), textcoords="offset points",
                     xytext=(0, 8), ha="center", fontsize=8, color=C_TEAL)
@@ -137,9 +119,6 @@ def plot_tau_sweep():
     save(fig, "fig_tau_iou_critical_point")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 2) 5K ablation trajectory
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def plot_ablation_trajectory():
     labels = ["A0", "A1", "E1", "B2'", "B2'v2", "C2'", "D2"]
     values = np.array([7.59, 6.01, 6.18, 6.01, 4.25, 6.18, 5.96])
@@ -150,7 +129,6 @@ def plot_ablation_trajectory():
     ax.plot(x, values, marker="o", color=C_TEAL,
             markerfacecolor="white", markeredgewidth=2.0, markeredgecolor=C_TEAL)
 
-    # best point — filled
     best_idx = 4  # B2'v2
     ax.plot(best_idx, values[best_idx], marker="o", markersize=9,
             color=C_RED, markeredgecolor=C_RED, zorder=5)
@@ -162,7 +140,6 @@ def plot_ablation_trajectory():
         fontsize=9, fontweight="bold", color=C_RED,
     )
 
-    # delta labels — above the midpoint of each segment
     for i in range(1, len(values)):
         delta = values[i] - values[i - 1]
         xm = (x[i - 1] + x[i]) / 2
@@ -171,7 +148,6 @@ def plot_ablation_trajectory():
         ax.text(xm, ym, f"{delta:+.2f}", fontsize=7.5, ha="center",
                 color=color, fontweight="bold")
 
-    # value labels
     for xi, yi in zip(x, values):
         if xi == best_idx:
             continue  # already annotated
@@ -186,7 +162,6 @@ def plot_ablation_trajectory():
     ax.grid(True, axis="y")
     ax.set_ylim(3.2, 8.5)
 
-    # ERM-style dashed reference for baseline
     ax.axhline(values[0], linestyle="--", linewidth=1.0, color=C_ORANGE, alpha=0.6, zorder=0)
     ax.text(len(labels) - 0.5, values[0] + 0.12, "A0 baseline",
             fontsize=7.5, color=C_ORANGE, alpha=0.8)
@@ -194,9 +169,6 @@ def plot_ablation_trajectory():
     save(fig, "fig_ablation_trajectory_5k_official")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 3) Optional waterfall
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def plot_ablation_waterfall():
     base = 7.59
     steps = ["A0\u2192A1", "A1\u2192E1", "E1\u2192B2'", "B2'\u2192B2'v2", "B2'v2\u2192C2'", "C2'\u2192D2"]
@@ -207,7 +179,6 @@ def plot_ablation_waterfall():
 
     fig, ax = plt.subplots(figsize=(8.4, 4.4))
 
-    # baseline
     ax.bar(0, base, width=0.65, color=C_BLUE, edgecolor=EDGE_BLUE, linewidth=0.8)
     ax.text(0, base + 0.12, f"{base:.2f}%", ha="center", fontsize=8.5, fontweight="bold")
 
@@ -223,7 +194,6 @@ def plot_ablation_waterfall():
         ax.text(i, ypos, f"{d:+.2f}", ha="center", va=va, fontsize=8, fontweight="bold")
         running += d
 
-    # final
     ax.bar(len(tick_labels) - 1, running, width=0.65, color=C_BLUE, edgecolor=EDGE_BLUE, linewidth=0.8)
     ax.text(len(tick_labels) - 1, running + 0.12, f"{running:.2f}%",
             ha="center", fontsize=8.5, fontweight="bold")
@@ -238,9 +208,6 @@ def plot_ablation_waterfall():
     save(fig, "fig_ablation_waterfall_optional")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 4) 5K split stability
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def plot_split_stability():
     splits = ["Train", "Valid", "Test", "All"]
     viol = np.array([3.86, 3.98, 4.05, 3.89])
@@ -252,7 +219,6 @@ def plot_split_stability():
     ax.plot(x, viol, marker="o", color=C_TEAL, markerfacecolor="white",
             markeredgewidth=2.0, markeredgecolor=C_TEAL)
 
-    # dashed mean line
     mean_viol = np.mean(viol)
     ax.axhline(mean_viol, linestyle="--", linewidth=1.0, color=C_ORANGE, alpha=0.6, zorder=0)
     ax.text(3.3, mean_viol + 0.01, f"mean {mean_viol:.2f}%", fontsize=7.5, color=C_ORANGE)
@@ -275,9 +241,6 @@ def plot_split_stability():
     save(fig, "fig_split_stability_5k")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 5) Split NLG metrics (grouped bar, bold labels)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def plot_split_nlg():
     splits = ["Train", "Valid", "Test", "All"]
     bleu = np.array([0.492, 0.502, 0.487, 0.492])
@@ -296,7 +259,6 @@ def plot_split_nlg():
     b3 = ax.bar(x + width, meteor, width, label="METEOR",
                 color=C_CORAL, edgecolor=EDGE_CORAL, linewidth=0.7)
 
-    # bold labels on top
     for bars in [b1, b2, b3]:
         bar_label(ax, bars, fmt="{:.3f}", offset=0.004, fontsize=7.5, bold=True)
 
@@ -312,9 +274,6 @@ def plot_split_nlg():
     save(fig, "fig_split_nlg_5k")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 6) Residual violation breakdown (horizontal bars)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def plot_residual_breakdown():
     rules = ["R3\nDEPTH", "R6b\nCROSS_PRES", "R1\nLATERALITY"]
     counts = np.array([113, 46, 2])
@@ -344,15 +303,11 @@ def plot_residual_breakdown():
     save(fig, "fig_residual_violation_breakdown")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 7) W_proj trade-off (2-panel grouped bar)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def plot_wproj_tradeoff():
     fig, axes = plt.subplots(1, 2, figsize=(8.8, 3.8))
 
     width = 0.30
 
-    # ── Left panel: Viol% + BLEU-4 ──
     metrics_L = ["Viol.%", "BLEU-4"]
     id_vals = [4.05, 0.487]
     tr_vals = [4.32, 0.477]
@@ -376,7 +331,6 @@ def plot_wproj_tradeoff():
     axes[0].grid(True, axis="y")
     axes[0].legend(frameon=False, fontsize=8, loc="upper right")
 
-    # ── Right panel: R1 + R3 counts ──
     metrics_R = ["R1", "R3"]
     id_counts = [2, 113]
     tr_counts = [105, 23]
@@ -402,9 +356,6 @@ def plot_wproj_tradeoff():
     save(fig, "fig_wproj_tradeoff_5k")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 8) Fig 1 — Ablation waterfall (2-panel: Viol% bars + R1/R3 grouped bars)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def plot_fig1_waterfall():
     configs = ["A0", "A1", "E1", "B2'", "B2'v2", "C2'", "D2"]
     viol = np.array([7.59, 6.01, 6.18, 6.01, 4.25, 6.18, 5.96])
@@ -414,14 +365,12 @@ def plot_fig1_waterfall():
     x = np.arange(len(configs))
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.0, 4.2))
 
-    # ── Left: Viol% bar chart ──
     colors_left = [C_CORAL] * len(configs)
     colors_left[4] = C_TEAL  # B2'v2 = best
     edge_left = [EDGE_CORAL] * len(configs)
     edge_left[4] = "#1E8C84"
 
     bars1 = ax1.bar(x, viol, width=0.6, color=colors_left, edgecolor=edge_left, linewidth=0.8)
-    # dashed baseline
     ax1.axhline(viol[4], linestyle="--", linewidth=0.8, color=C_TEAL, alpha=0.5, zorder=0)
 
     for xi, v in zip(x, viol):
@@ -434,7 +383,6 @@ def plot_fig1_waterfall():
     ax1.set_ylim(0, 9.0)
     ax1.grid(True, axis="y")
 
-    # ── Right: R1 + R3 grouped bars ──
     width = 0.32
     b_r1 = ax2.bar(x - width/2, r1, width, label="R1 (Laterality)",
                    color=C_CORAL, edgecolor=EDGE_CORAL, linewidth=0.7)
@@ -452,16 +400,12 @@ def plot_fig1_waterfall():
     save(fig, "fig1_waterfall_2panel")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 9) Fig 2 — k-sweep (2-row shared x-axis)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def plot_fig2_ksweep():
     k_vals = np.array([1, 2, 4, 6, 8, 12, 14])
     viol   = np.array([10.51, 14.34, 12.60, 12.18, 11.41, 15.31, 15.73])
     r1     = np.array([132, 187, 157, 144, 128, 168, 165])
     r3     = np.array([2, 2, 7, 14, 19, 35, 44])
 
-    # Mimic reference style: teal + orange (kept), add soft blue as 3rd colour
     COL_VIOL = "#2CA9A0"   # teal   – Viol%  (reference colour 1)
     COL_R1   = "#E8923F"   # orange – R1     (reference colour 2)
     COL_R3   = "#6A9FD6"   # soft blue – R3  (same-saturation 3rd colour)
@@ -470,14 +414,11 @@ def plot_fig2_ksweep():
                                           sharex=True, height_ratios=[1, 1])
     fig.subplots_adjust(hspace=0.18)
 
-    # ── Top: Violation Rate (teal) ──
     best_idx = 4  # k=8
     ax_top.plot(k_vals, viol, marker="o", color=COL_VIOL, linewidth=1.8,
                 markersize=5.5, markerfacecolor=COL_VIOL, markeredgecolor=COL_VIOL)
-    # highlight best point
     ax_top.plot(k_vals[best_idx], viol[best_idx], marker="o", markersize=8,
                 color=COL_VIOL, markeredgecolor=COL_VIOL, zorder=5)
-    # dashed baseline at best
     ax_top.axhline(viol[best_idx], linestyle="--", linewidth=1.0,
                    color=COL_R1, alpha=0.7, zorder=0)
 
@@ -488,7 +429,6 @@ def plot_fig2_ksweep():
                   edgecolor="#CCCCCC", fancybox=False, framealpha=0.9)
     ax_top.set_title("(a) Violation Rate vs $k$", fontsize=10, pad=6)
 
-    # ── Bottom: R1 (orange) + R3 (soft blue) ──
     ax_bot.plot(k_vals, r1, marker="o", color=COL_R1, linewidth=1.8,
                 markersize=5.5, markerfacecolor=COL_R1, markeredgecolor=COL_R1,
                 label="R1 (Laterality)")
@@ -507,9 +447,6 @@ def plot_fig2_ksweep():
     save(fig, "fig2_ksweep")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 10) Fig 3 — Counterfactual sensitivity (2-panel)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def plot_fig3_counterfactual():
     perturbations = ["Original", "Paraphrase\n(control)", "Laterality\nflip", "Presence\nflip"]
     viol = np.array([4.55, 4.55, 15.93, 6.11])
@@ -520,13 +457,11 @@ def plot_fig3_counterfactual():
     x = np.arange(len(perturbations))
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.0, 4.2))
 
-    # ── Left: Viol% bars ──
     colors_left = [C_GREEN, C_GRAY, C_CORAL, C_ORANGE]
     edges_left = [EDGE_GREEN, "#888888", EDGE_CORAL, "#C07830"]
 
     bars1 = ax1.bar(x, viol, width=0.58, color=colors_left, edgecolor=edges_left, linewidth=0.8)
 
-    # dashed baseline at original
     ax1.axhline(viol[0], linestyle="--", linewidth=0.8, color=C_GREEN, alpha=0.5, zorder=0)
 
     for xi, v in zip(x, viol):
@@ -539,7 +474,6 @@ def plot_fig3_counterfactual():
     ax1.set_ylim(0, 19)
     ax1.grid(True, axis="y")
 
-    # ── Right: R1 / R3 / R6b grouped bars ──
     width = 0.22
     b_r1 = ax2.bar(x - width, r1, width, label="R1 (Laterality)",
                    color=C_CORAL, edgecolor=EDGE_CORAL, linewidth=0.7)
@@ -559,7 +493,6 @@ def plot_fig3_counterfactual():
     save(fig, "fig3_counterfactual")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def main():
     set_style()
     print("Generating figures...")
@@ -579,3 +512,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

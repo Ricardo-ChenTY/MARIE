@@ -1,4 +1,4 @@
-name: provetok_env_py312
+name: MARIE
 channels:
   - conda-forge
   - defaults
@@ -17,3 +17,4 @@ dependencies:
       - torchaudio==2.9.1
       - monai>=1.5.1,<1.6
       - sentence-transformers>=3.0
+

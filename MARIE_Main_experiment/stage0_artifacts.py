@@ -46,7 +46,6 @@ def _cell_crop(volume: np.ndarray, b: CellBounds) -> np.ndarray:
 
 
 def _streak_score(crop: np.ndarray) -> float:
-    # Stripe-like artifacts tend to have directional oscillation. Use axis anisotropy proxy.
     gx, gy, gz = np.gradient(crop.astype(np.float32), edge_order=1)
     v = np.array([np.mean(np.abs(gx)), np.mean(np.abs(gy)), np.mean(np.abs(gz))], dtype=np.float32)
     return float(np.max(v) - np.min(v))

@@ -7,7 +7,7 @@ from typing import Dict, List, Sequence, Tuple
 import numpy as np
 import torch
 
-from .config import ProveTokConfig
+from .config import MARIEConfig
 from .types import BBox3D, EvidenceToken
 
 
@@ -55,7 +55,7 @@ def _token_json_obj(token: EvidenceToken, spacing_xyz_mm: Tuple[float, float, fl
 def save_token_bank_case(
     out_case_dir: str,
     tokens: Sequence[EvidenceToken],
-    cfg: ProveTokConfig,
+    cfg: MARIEConfig,
     spacing_xyz_mm: Tuple[float, float, float],
     encoder_name: str,
     global_bbox_voxel: BBox3D,
@@ -97,3 +97,4 @@ def save_token_bank_case(
     }
     with (out_dir / "bank_meta.json").open("w", encoding="utf-8") as f:
         json.dump(bank_meta, f, ensure_ascii=False, indent=2)
+

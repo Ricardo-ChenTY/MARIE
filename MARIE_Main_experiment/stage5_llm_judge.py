@@ -99,7 +99,6 @@ def _parse_verdict(rule_id: str, raw: str, fallback_severity: float) -> JudgeVer
             )
     except Exception:
         pass
-    # Fallback: heuristic from raw text
     lowered = raw.lower()
     confirmed = '"confirmed": true' in lowered or "confirmed: true" in lowered
     return JudgeVerdict(
@@ -112,24 +111,17 @@ def _parse_verdict(rule_id: str, raw: str, fallback_severity: float) -> JudgeVer
 
 @dataclass
 class LLMJudgeConfig:
-    # Backend selection: "ollama" | "openai" | "anthropic" | "huggingface"
     backend: str = "ollama"
-    # Model name (backend-specific)
     model: str = "qwen2.5:7b"
-    # CP .tex penalty: S'_i = S_i * (1 - alpha * sev_i)
     alpha: float = 0.5
-    # Ollama host
     ollama_host: str = "http://localhost:11434"
     timeout_s: float = 30.0
     temperature: float = 0.0
-    # API keys (if not set, reads from env)
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
-    # HuggingFace backend options
     hf_device_map: str = "auto"       # "auto" | "cpu" | "cuda"
     hf_torch_dtype: str = "bfloat16"  # "bfloat16" | "float16" | "float32"
     hf_token: Optional[str] = None    # HF access token (for gated models like Llama-3)
-    # When LLM call fails, fall back to confirming the original violation
     fail_open: bool = True
 
 
@@ -174,7 +166,6 @@ class LLMJudge:
                 torch_dtype=dtype,
                 device_map=cfg.hf_device_map,
             )
-            # Only pass token for remote HuggingFace Hub models (not local paths)
             is_local = os.path.isdir(cfg.model)
             if not is_local and cfg.hf_token:
                 kw["token"] = cfg.hf_token
@@ -182,9 +173,6 @@ class LLMJudge:
             src = "local" if is_local else "HuggingFace Hub"
             print(f"[Stage 5] Loaded model ({src}): {cfg.model}")
 
-    # ------------------------------------------------------------------
-    # LLM backend calls
-    # ------------------------------------------------------------------
 
     def _call_ollama(self, user_prompt: str) -> str:
         import urllib.request
@@ -242,7 +230,6 @@ class LLMJudge:
             temperature=self.cfg.temperature if do_sample else None,
             do_sample=do_sample,
         )
-        # transformers pipeline returns full conversation; last entry is model reply
         generated = outputs[0]["generated_text"]
         if isinstance(generated, list):
             return str(generated[-1].get("content", ""))
@@ -259,9 +246,6 @@ class LLMJudge:
             return self._call_huggingface(user_prompt)
         raise ValueError(f"Unknown LLM backend: {self.cfg.backend!r}")
 
-    # ------------------------------------------------------------------
-    # Judging logic
-    # ------------------------------------------------------------------
 
     def judge_violations(
         self,
@@ -278,7 +262,6 @@ class LLMJudge:
                 verdicts.append(_parse_verdict(v.rule_id, raw, v.severity))
             except Exception as e:
                 if self.cfg.fail_open:
-                    # Conservative: keep original violation
                     verdicts.append(
                         JudgeVerdict(
                             rule_id=v.rule_id,
@@ -288,7 +271,6 @@ class LLMJudge:
                         )
                     )
                 else:
-                    # Optimistic: dismiss on failure
                     verdicts.append(
                         JudgeVerdict(
                             rule_id=v.rule_id,
@@ -333,9 +315,7 @@ class LLMJudge:
         if not confirmed_sevs:
             return scores
 
-        # Build per-token severity map from violation token_ids
         if violations is not None:
-            # Match verdicts to violations by rule_id to get token_ids
             verdict_map = {v.rule_id: v for v in verdicts if v.confirmed}
             token_sev: Dict[int, float] = {}
             for viol in violations:
@@ -352,7 +332,6 @@ class LLMJudge:
                     result[tid] = s - gamma * math.log(1.0 + sev)
                 return result
 
-        # Fallback: sentence-level uniform penalty
         max_sev = max(confirmed_sevs)
         penalty = gamma * math.log(1.0 + max_sev)
         return {tid: s - penalty for tid, s in scores.items()}

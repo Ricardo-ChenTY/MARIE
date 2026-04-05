@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage in Colab terminal:
-#   bash Scripts/run_r2_maxiou_sweep.sh
-#
-# R2 max_iou 模式扫描说明：
-#   max_iou 模式：只要 cited tokens 中 max(IoU) >= tau 就通过，比 ratio 模式宽松。
-#   扫描 tau_iou ∈ {0.10, 0.05, 0.02}，共 3 组。
-#   同时关闭 R4（阈值未校准），隔离 R4 干扰。
-#
-# 对比基准：run_r2_sweep_50_cp_strict_colab.sh (ratio 模式)
-# 结果汇总：python Scripts/summarize_r2_sweep.py --sweep_root <OUT_ROOT> --glob "r2_maxiou_tau*"
 
 CTRATE_CSV="/content/drive/MyDrive/Data/manifests/ctrate_manifest.csv"
 RADGENOME_CSV="/content/drive/MyDrive/Data/manifests/radgenome_manifest.csv"

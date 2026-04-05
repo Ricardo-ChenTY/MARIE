@@ -1,19 +1,9 @@
 #!/usr/bin/env bash
-# ============================================================
-# Step 1: Stage 0-4 Baseline (服务器版，450/450，无 LLM)
-#
-# 用法:
-#   bash Scripts/run_stage0_4_server.sh
-#
-# 路径已固定到当前项目目录，结果存到 OUT_DIR
-# ============================================================
 set -euo pipefail
 
-# ─── 固定输入路径 ────────────────────────────────────────
-CTRATE_CSV="/data/ProveTok_ACM/manifests/ctrate_manifest.csv"
-RADGENOME_CSV="/data/ProveTok_ACM/manifests/radgenome_manifest.csv"
-ENCODER_CKPT="/data/ProveTok_ACM/checkpoints/swinunetr.ckpt"
-# ─────────────────────────────────────────────────────────
+CTRATE_CSV="/data/MARIE/manifests/ctrate_manifest.csv"
+RADGENOME_CSV="/data/MARIE/manifests/radgenome_manifest.csv"
+ENCODER_CKPT="/data/MARIE/checkpoints/swinunetr.ckpt"
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${PROJ_ROOT}/outputs/stage0_4_450"
@@ -37,7 +27,6 @@ echo "Stage 0-4 Baseline  |  450/450"
 echo "OUT: ${OUT_DIR}"
 echo "=========================================="
 
-# 1. checkpoint 兼容性检测（快速，跑失败直接报错）
 python "${PROJ_ROOT}/Scripts/ckpt_probe.py" \
   --ckpt_path "${ENCODER_CKPT}" \
   --in_channels 1 \
@@ -45,7 +34,6 @@ python "${PROJ_ROOT}/Scripts/ckpt_probe.py" \
   --feature_size 48 \
   --save_report "${OUT_DIR}/ckpt_probe_report.json"
 
-# 2. 主实验
 python "${PROJ_ROOT}/run_mini_experiment.py" \
   --ctrate_csv    "${CTRATE_CSV}" \
   --radgenome_csv "${RADGENOME_CSV}" \
@@ -73,7 +61,6 @@ python "${PROJ_ROOT}/run_mini_experiment.py" \
   --r1_skip_midline \
   --r1_min_same_side_ratio 0.6
 
-# 3. 结构验收
 python "${PROJ_ROOT}/validate_stage0_4_outputs.py" \
   --out_dir "${OUT_DIR}" \
   --datasets ctrate,radgenome \
@@ -87,3 +74,4 @@ echo ""
 echo "下一步:"
 echo "  Stage 0-5 (加 LLM 裁判): bash Scripts/run_stage0_5_llama_server.sh"
 echo "  训练 W_proj:              bash Scripts/run_wprojection_train.sh"
+

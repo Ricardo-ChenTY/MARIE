@@ -1,23 +1,9 @@
 #!/usr/bin/env bash
-# ============================================================
-# Step 2: Stage 0-5 Full Pipeline
-#   Stage 0-4 + Stage 3c LLM Generation + Stage 5 Rerouting
-#
-# 前置条件:
-#   models/Llama-3.1-8B-Instruct/ 目录存在（已下载模型）
-#   下载方法: huggingface-cli download meta-llama/Llama-3.1-8B-Instruct \
-#               --local-dir models/Llama-3.1-8B-Instruct
-#
-# 用法:
-#   bash Scripts/run_stage0_5_llama_server.sh
-# ============================================================
 set -euo pipefail
 
-# ─── 固定输入路径 ────────────────────────────────────────
-CTRATE_CSV="/data/ProveTok_ACM/manifests/ctrate_900_manifest.csv"
-RADGENOME_CSV="/data/ProveTok_ACM/manifests/radgenome_900_manifest.csv"
-ENCODER_CKPT="/data/ProveTok_ACM/checkpoints/swinunetr.ckpt"
-# ─────────────────────────────────────────────────────────
+CTRATE_CSV="/data/MARIE/manifests/ctrate_900_manifest.csv"
+RADGENOME_CSV="/data/MARIE/manifests/radgenome_900_manifest.csv"
+ENCODER_CKPT="/data/MARIE/checkpoints/swinunetr.ckpt"
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${PROJ_ROOT}/outputs/stage0_5_llama_450"
@@ -38,7 +24,6 @@ export HUGGINGFACE_HUB_CACHE="${CACHE_ROOT}/huggingface/hub"
 export TRANSFORMERS_CACHE="${CACHE_ROOT}/huggingface/transformers"
 export SENTENCE_TRANSFORMERS_HOME="${CACHE_ROOT}/sentence_transformers"
 
-# 检查模型目录是否存在
 if [ ! -d "${MODEL_DIR}" ]; then
   echo "❌ 模型目录不存在: ${MODEL_DIR}"
   echo ""
@@ -58,7 +43,6 @@ echo "模型: ${MODEL_DIR}"
 echo "OUT:  ${OUT_DIR}"
 echo "=========================================="
 
-# 1. checkpoint 检测
 python "${PROJ_ROOT}/Scripts/ckpt_probe.py" \
   --ckpt_path "${ENCODER_CKPT}" \
   --in_channels 1 \
@@ -66,7 +50,6 @@ python "${PROJ_ROOT}/Scripts/ckpt_probe.py" \
   --feature_size 48 \
   --save_report "${OUT_DIR}/ckpt_probe_report.json"
 
-# 2. 主实验: Stage 0-4 + Stage 3c Generation + Stage 5 Rerouting
 python "${PROJ_ROOT}/run_mini_experiment.py" \
   --ctrate_csv    "${CTRATE_CSV}" \
   --radgenome_csv "${RADGENOME_CSV}" \
@@ -105,7 +88,6 @@ python "${PROJ_ROOT}/run_mini_experiment.py" \
   --reroute_gamma 2.0 \
   --reroute_max_retry 1 2>&1 | tee "${OUT_DIR}/run.log"
 
-# 3. 结构验收
 python "${PROJ_ROOT}/validate_stage0_4_outputs.py" \
   --out_dir "${OUT_DIR}" \
   --datasets ctrate,radgenome \
@@ -120,3 +102,4 @@ echo "  summary.csv 中 n_generated 列 = LLM 生成的句子数"
 echo "  n_rerouted 列 = 重路由后重新生成的句子数"
 echo "  n_judge_confirmed 列 = LLM 确认的违规句数"
 echo "  trace.jsonl 中 generated_text / rerouted_citations = 生成文本和重路由引用"
+

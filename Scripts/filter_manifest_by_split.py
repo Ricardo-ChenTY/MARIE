@@ -23,7 +23,6 @@ def main() -> None:
     parser.add_argument("--out", type=str, required=True)
     args = parser.parse_args()
 
-    # Read split file, filter to this dataset
     with open(args.split_file) as f:
         lines = [l.strip() for l in f if l.strip()]
     case_ids = [l.split("/", 1)[1] for l in lines if l.startswith(args.dataset + "/")]

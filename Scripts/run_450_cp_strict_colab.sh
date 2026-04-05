@@ -1,8 +1,6 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-# Example usage in Colab terminal:
-# bash Scripts/run_450_cp_strict_colab.sh
 
 CTRATE_CSV="/content/drive/MyDrive/Data/manifests/ctrate_manifest.csv"
 RADGENOME_CSV="/content/drive/MyDrive/Data/manifests/radgenome_manifest.csv"
@@ -11,7 +9,6 @@ OUT_DIR="/content/drive/MyDrive/Data/outputs_stage0_4_full450_cp_strict"
 
 mkdir -p "${OUT_DIR}"
 
-# Step 0: checkpoint compatibility gate (must pass before full run)
 python Scripts/ckpt_probe.py \
   --ckpt_path "${ENCODER_CKPT}" \
   --in_channels 1 \

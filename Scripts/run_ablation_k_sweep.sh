@@ -1,19 +1,8 @@
 #!/usr/bin/env bash
-# ============================================================
-# Phase D: k_per_sentence sweep on E1 routing
-#
-# Sweep k ∈ {4, 6, 8, 12} with E1 (spatial filter + semantic rerank)
-# trained W_proj, Stage 3c OFF, Stage 5 OFF (gold text).
-# Same 180 test cases as Phase A/E1.
-#
-# Usage:
-#   bash Scripts/run_ablation_k_sweep.sh
-# ============================================================
 set -euo pipefail
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# ─── Paths ────────────────────────────────────────
 CTRATE_CSV="${PROJ_ROOT}/manifests/ctrate_test.csv"
 RADGENOME_CSV="${PROJ_ROOT}/manifests/radgenome_test.csv"
 ENCODER_CKPT="${PROJ_ROOT}/checkpoints/swinunetr.ckpt"
@@ -21,7 +10,6 @@ W_PROJ_PATH="${PROJ_ROOT}/outputs_wprojection/w_proj.pt"
 BASE_OUT="${PROJ_ROOT}/outputs/ablation_k_sweep"
 CACHE_ROOT="${PROJ_ROOT}/.cache"
 HF_HOME_DIR="${PROJ_ROOT}/.hf"
-# ──────────────────────────────────────────────────
 
 mkdir -p "${BASE_OUT}"
 mkdir -p \
@@ -36,12 +24,10 @@ export HUGGINGFACE_HUB_CACHE="${CACHE_ROOT}/huggingface/hub"
 export TRANSFORMERS_CACHE="${CACHE_ROOT}/huggingface/transformers"
 export SENTENCE_TRANSFORMERS_HOME="${CACHE_ROOT}/sentence_transformers"
 
-# Activate conda environment
 CONDA_BASE="${PROJ_ROOT}/miniconda3"
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
-conda activate provetok
+conda activate MARIE
 
-# ─── Common flags (same as Phase A / E1) ──────────
 COMMON_FLAGS=(
   --ctrate_csv    "${CTRATE_CSV}"
   --radgenome_csv "${RADGENOME_CSV}"
@@ -97,3 +83,4 @@ for K in 1 2 4 6 8 12 14; do
   echo "  k=${K}: $(tail -4 "${BASE_OUT}/k${K}/run.log" | head -2)"
 done
 echo "================================================================"
+

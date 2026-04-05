@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/data/ProveTok_ACM"
+ROOT="/data/MARIE"
 OUT4="${ROOT}/outputs/stage0_4_50"
 OUT5="${ROOT}/outputs/stage0_5_llama_50"
 MASTER_LOG="${ROOT}/logs/smoke50_master.log"
@@ -28,7 +28,7 @@ rm -f "${DONE_FLAG}"
 : > "${MASTER_LOG}"
 
 source "${ROOT}/miniconda3/etc/profile.d/conda.sh"
-conda activate "${ROOT}/miniconda3/envs/provetok"
+conda activate "${ROOT}/miniconda3/envs/MARIE"
 
 printf "[%s] START stage0_4_50\n" "$(date -Is)" | tee -a "${MASTER_LOG}"
 python "${ROOT}/Scripts/ckpt_probe.py" \
@@ -119,3 +119,4 @@ python "${ROOT}/validate_stage0_4_outputs.py" \
 
 printf "[%s] DONE stage0_5_50\n" "$(date -Is)" | tee -a "${MASTER_LOG}"
 touch "${DONE_FLAG}"
+

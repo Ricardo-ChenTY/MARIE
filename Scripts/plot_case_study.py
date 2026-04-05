@@ -46,7 +46,6 @@ CASE_ID = "train_18661_a_2"
 DATASET = "ctrate"
 SENT_IDX = 2
 
-# Colours
 COL_SAME  = "#2CA9A0"  # teal  — same-side (correct / repaired)
 COL_OPP   = "#E8923F"  # orange — opposite-side (violation)
 COL_PASS  = "#2CA9A0"  # teal  — all tokens correct after repair
@@ -102,8 +101,6 @@ def make_colour_map(tokens, cited_ids, claim_side="right"):
         t = token_map.get(tid)
         if t and "bbox_3d_voxel" in t:
             x_center = (t["bbox_3d_voxel"]["x_min"] + t["bbox_3d_voxel"]["x_max"]) / 2
-            # In radiological convention: patient's right → image left (x < mid)
-            # claim_side="right" means we expect tokens on patient's right = image left
             if claim_side == "right":
                 on_claimed_side = x_center < mid_x
             else:
@@ -204,9 +201,7 @@ def main():
     cited_b2 = sent_b2.get("topk_token_ids", [])[:8]
     cited_d2 = sent_d2.get("topk_token_ids", [])[:8]
 
-    # Sentence claims "right lung" → colour by same/opposite side
     cmap_before = make_colour_map(tokens_b2, cited_b2, claim_side="right")
-    # After repair: sentence is now bilateral → all tokens are "correct"
     cmap_after = {tid: COL_PASS for tid in cited_d2}
 
     if vol is not None:
@@ -218,36 +213,28 @@ def main():
 
     print(f"  z_idx={z_idx}, midline={midline_vol:.0f}")
 
-    # ── Figure: 2 rows × 3 columns ──
     fig, axes = plt.subplots(2, 3, figsize=(13, 6.5),
                              gridspec_kw={"height_ratios": [3, 2],
                                           "hspace": 0.22, "wspace": 0.20})
 
-    # (a) Before repair — violation detected
     if vol is not None:
         draw_ct_panel(axes[0, 0], vol, z_idx, tokens_b2, cited_b2,
                       cmap_before, midline_vol,
                       "(a) Before Repair — Violation Detected")
     draw_info_card(axes[1, 0], sent_b2, box_color="#FFF0E0")
 
-    # (b) Judge diagnosis — middle column shows judge's analysis
-    # Use same CT but highlight the offending tokens more prominently
     if vol is not None:
-        # For judge panel, show only offending (orange) tokens highlighted
         draw_ct_panel(axes[0, 1], vol, z_idx, tokens_b2, cited_b2,
                       cmap_before, midline_vol,
                       "(b) Judge Diagnosis")
-    # Judge info card
     draw_info_card(axes[1, 1], sent_d2, box_color="#FFF8E0", show_judge=True)
 
-    # (c) After repair — PASS
     if vol is not None:
         draw_ct_panel(axes[0, 2], vol, z_idx, tokens_d2, cited_d2,
                       cmap_after, midline_vol,
                       "(c) After Repair — PASS")
     draw_info_card(axes[1, 2], sent_d2, box_color="#E0F5E0", is_repaired=True)
 
-    # Legend
     legend_elements = [
         Line2D([0], [0], marker='s', color='w', markerfacecolor=COL_SAME,
                markersize=10, label='Same-side token (correct)'),

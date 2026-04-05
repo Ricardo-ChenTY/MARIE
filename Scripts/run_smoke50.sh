@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJ_ROOT="/data/ProveTok_ACM"
+PROJ_ROOT="/data/MARIE"
 MODEL_DIR="${PROJ_ROOT}/models/Llama-3.1-8B-Instruct"
 CACHE_ROOT="${PROJ_ROOT}/.cache"
 HF_HOME_DIR="${PROJ_ROOT}/.hf"
@@ -53,3 +53,4 @@ python run_mini_experiment.py \
   --strict_laterality \
   --reroute_gamma 2.0 \
   --reroute_max_retry 1
+

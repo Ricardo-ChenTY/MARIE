@@ -1,35 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage in Colab terminal:
-#   bash Scripts/run_r2_sweep_50_cp_strict_colab.sh
-#
-# 参数扫描说明：
-#   tau_iou          x  r2_min_support_ratio  =  2 x 3 = 6 组
-#   {0.10, 0.05}     x  {1.0, 0.8, 0.6}
-#
-# 为什么用 64^3 做 sweep：
-#   IoU = token_vol / anatomy_vol，分子分母同比例缩放，
-#   64^3 和 128^3 下 tau 的最优区间相同（resolution-invariant）。
-#   用 64^3 速度约快 4-8x，参数确定后主实验再上 128^3。
-#
-# 语义 encoder 说明：
-#   hash encoder（默认）是无语义的随机向量，routing 等同于随机，
-#   必须用 semantic 才能让 router 有效工作。
 
 CTRATE_CSV="/content/drive/MyDrive/Data/manifests/ctrate_manifest.csv"
 RADGENOME_CSV="/content/drive/MyDrive/Data/manifests/radgenome_manifest.csv"
 ENCODER_CKPT="/content/drive/MyDrive/Data/checkpoints/swinunetr.ckpt"
 OUT_ROOT="/content/drive/MyDrive/Data/outputs_stage0_4_r2sweep_50_cp_strict"
 
-# 2D sweep grid
 TAU_VALUES=("0.10" "0.05")
 RATIOS=("1.0" "0.8" "0.6")
 
 mkdir -p "${OUT_ROOT}"
 
 for tau in "${TAU_VALUES[@]}"; do
-  # 生成目录用的 tau 字符串，去掉小数点 (0.10 -> t010, 0.05 -> t005)
   tau_str="t$(echo "${tau}" | tr -d '.')"
 
   for ratio in "${RATIOS[@]}"; do

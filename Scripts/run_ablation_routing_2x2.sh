@@ -1,25 +1,8 @@
 #!/usr/bin/env bash
-# ============================================================
-# Phase A: Routing-only 2×2 ablation (Stage 3c OFF, Stage 5 OFF)
-#
-# Gold text only — no LLM generation, no LLM judge, no rerouting.
-# Measures pure routing quality via Stage 4 rule violations.
-#
-#   A0: identity W_proj + spatial routing   (baseline)
-#   A1: trained  W_proj + spatial routing
-#   A2: identity W_proj + semantic routing
-#   A3: trained  W_proj + semantic routing
-#
-# All 4 run on the same 180 test cases (90 ctrate + 90 radgenome).
-#
-# Usage:
-#   bash Scripts/run_ablation_routing_2x2.sh
-# ============================================================
 set -euo pipefail
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# ─── Paths ────────────────────────────────────────
 CTRATE_CSV="${PROJ_ROOT}/manifests/ctrate_test.csv"
 RADGENOME_CSV="${PROJ_ROOT}/manifests/radgenome_test.csv"
 ENCODER_CKPT="${PROJ_ROOT}/checkpoints/swinunetr.ckpt"
@@ -27,7 +10,6 @@ W_PROJ_PATH="${PROJ_ROOT}/outputs_wprojection/w_proj.pt"
 BASE_OUT="${PROJ_ROOT}/outputs/ablation_routing_2x2"
 CACHE_ROOT="${PROJ_ROOT}/.cache"
 HF_HOME_DIR="${PROJ_ROOT}/.hf"
-# ──────────────────────────────────────────────────
 
 mkdir -p "${BASE_OUT}"
 mkdir -p \
@@ -42,12 +24,10 @@ export HUGGINGFACE_HUB_CACHE="${CACHE_ROOT}/huggingface/hub"
 export TRANSFORMERS_CACHE="${CACHE_ROOT}/huggingface/transformers"
 export SENTENCE_TRANSFORMERS_HOME="${CACHE_ROOT}/sentence_transformers"
 
-# Activate conda environment
 CONDA_BASE="${PROJ_ROOT}/miniconda3"
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
-conda activate provetok
+conda activate MARIE
 
-# ─── Common flags (no Stage 3c, no Stage 5) ──────
 COMMON_FLAGS=(
   --ctrate_csv    "${CTRATE_CSV}"
   --radgenome_csv "${RADGENOME_CSV}"
@@ -73,7 +53,6 @@ COMMON_FLAGS=(
   --r1_skip_midline
   --r1_min_same_side_ratio 0.6
 )
-# Note: NO --llm_judge, NO --stage3c_backend → gold text, no judge, no reroute
 
 echo "================================================================"
 echo "Phase A: Routing-only 2×2 Ablation (Stage 3c OFF, Stage 5 OFF)"
@@ -81,7 +60,6 @@ echo "  90 ctrate + 90 radgenome = 180 test cases"
 echo "  Measuring Stage 4 violations only (gold text)"
 echo "================================================================"
 
-# ─── A0: identity + spatial ──────────────────────
 A0_DIR="${BASE_OUT}/A0_identity_spatial"
 mkdir -p "${A0_DIR}"
 echo ""
@@ -94,7 +72,6 @@ python "${PROJ_ROOT}/run_mini_experiment.py" \
   2>&1 | tee "${A0_DIR}/run.log"
 echo ">>> A0 done"
 
-# ─── A1: trained + spatial ───────────────────────
 A1_DIR="${BASE_OUT}/A1_trained_spatial"
 mkdir -p "${A1_DIR}"
 echo ""
@@ -108,7 +85,6 @@ python "${PROJ_ROOT}/run_mini_experiment.py" \
   2>&1 | tee "${A1_DIR}/run.log"
 echo ">>> A1 done"
 
-# ─── A2: identity + semantic ─────────────────────
 A2_DIR="${BASE_OUT}/A2_identity_semantic"
 mkdir -p "${A2_DIR}"
 echo ""
@@ -120,7 +96,6 @@ python "${PROJ_ROOT}/run_mini_experiment.py" \
   2>&1 | tee "${A2_DIR}/run.log"
 echo ">>> A2 done"
 
-# ─── A3: trained + semantic ──────────────────────
 A3_DIR="${BASE_OUT}/A3_trained_semantic"
 mkdir -p "${A3_DIR}"
 echo ""
@@ -133,7 +108,6 @@ python "${PROJ_ROOT}/run_mini_experiment.py" \
   2>&1 | tee "${A3_DIR}/run.log"
 echo ">>> A3 done"
 
-# ─── Summary comparison ─────────────────────────
 echo ""
 echo "================================================================"
 echo "All 4 conditions complete. Comparing results..."
@@ -170,7 +144,6 @@ result = pd.DataFrame(rows)
 print(result.to_string(index=False))
 print()
 
-# Overall comparison
 for label, path in configs.items():
     df = pd.read_csv(path)
     v = df.n_violations.sum()
@@ -184,3 +157,4 @@ echo "  A0_identity_spatial/summary.csv"
 echo "  A1_trained_spatial/summary.csv"
 echo "  A2_identity_semantic/summary.csv"
 echo "  A3_trained_semantic/summary.csv"
+

@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """
-ProveTok Stage0-4 Output Analysis  (server / local, no Colab)
+MARIE Stage0-4 Output Analysis  (server / local, no Colab)
 
 用法:
-  # 验收单次 450/450 主实验
   python analyze_outputs.py --out_dir /path/to/outputs_stage0_4_450
 
-  # 同时验收 Stage0-5（有 n_judge_confirmed 列）
   python analyze_outputs.py --out_dir /path/to/outputs_stage0_5_llama_450
 
-  # Sweep 对比（tau_iou × r2_min_support_ratio）
   python analyze_outputs.py --mode sweep --sweep_root /path/to/sweeps
 
 图片保存到 {out_dir}/analysis_exports/  (matplotlib Agg backend, 无需 display)
@@ -28,7 +25,6 @@ from typing import List, Tuple
 import pandas as pd
 import numpy as np
 
-# ── matplotlib: 非交互模式，适合 server ──────────────────────────
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -37,7 +33,6 @@ import seaborn as sns
 sns.set_theme(style="whitegrid", font_scale=1.1)
 plt.rcParams["figure.dpi"] = 120
 
-# ── 主实验锁定配置（验收基准）────────────────────────────────────
 LOCKED_CONFIG = {
     "cp_strict":               True,
     "r2_mode":                 "ratio",
@@ -53,9 +48,6 @@ LOCKED_CONFIG = {
 }
 
 
-# ══════════════════════════════════════════════════════════════════
-# Helpers
-# ══════════════════════════════════════════════════════════════════
 
 def _banner(title: str) -> None:
     print(f"\n{'='*60}")
@@ -83,9 +75,6 @@ def _parse_expected_cases_map(s: str) -> dict[str, int]:
     return result
 
 
-# ══════════════════════════════════════════════════════════════════
-# Section 1 – 结构验收
-# ══════════════════════════════════════════════════════════════════
 
 def run_validation(out_path: Path, expected_cases_map: str) -> None:
     _banner("1. 结构验收（validate_stage0_4_outputs.py）")
@@ -124,7 +113,6 @@ def check_run_meta(out_path: Path, expected_cases_map: str) -> dict:
     else:
         print("  [WARN] run_meta.json not found")
 
-    # validation_report
     validation_rows: list = []
     if vrp.exists():
         validation_rows = json.loads(vrp.read_text(encoding="utf-8"))
@@ -133,7 +121,6 @@ def check_run_meta(out_path: Path, expected_cases_map: str) -> dict:
     else:
         print("  [WARN] validation_report.json not found")
 
-    # Config checks
     checks = []
     for key, expected in LOCKED_CONFIG.items():
         val = run_meta.get(key)
@@ -177,9 +164,6 @@ def check_run_meta(out_path: Path, expected_cases_map: str) -> dict:
     return run_meta
 
 
-# ══════════════════════════════════════════════════════════════════
-# Section 3 – summary.csv 分析
-# ══════════════════════════════════════════════════════════════════
 
 def analyze_summary(out_path: Path, export_dir: Path, expected_cases_map: str) -> pd.DataFrame:
     _banner("3. summary.csv 分析")
@@ -200,7 +184,6 @@ def analyze_summary(out_path: Path, export_dir: Path, expected_cases_map: str) -
         "n_sentences": ("avg_sentences",     "mean"),
         "n_violations":("avg_violations",    "mean"),
     }
-    # optional stage5 column
     extra = {}
     if "n_judge_confirmed" in summary.columns:
         extra["n_judge_confirmed"] = ("total_judge_confirmed", "sum")
@@ -217,7 +200,6 @@ def analyze_summary(out_path: Path, export_dir: Path, expected_cases_map: str) -
     agg = agg.round({"avg_tokens": 1, "avg_sentences": 2, "avg_violations": 3})
     print(agg.to_string(index=False))
 
-    # bar chart
     metrics = [
         ("avg_tokens",     "Avg Tokens / Case"),
         ("avg_sentences",  "Avg Sentences / Case"),
@@ -243,9 +225,6 @@ def analyze_summary(out_path: Path, export_dir: Path, expected_cases_map: str) -
     return agg
 
 
-# ══════════════════════════════════════════════════════════════════
-# Section 4 – Trace 解析（句子级）
-# ══════════════════════════════════════════════════════════════════
 
 def parse_traces(out_path: Path, export_dir: Path):
     _banner("4. Trace 解析（句子级）")
@@ -275,7 +254,6 @@ def parse_traces(out_path: Path, export_dir: Path):
                 for rid in rule_ids:
                     rule_counter[rid] += 1
 
-                # stage5 info
                 j5 = obj.get("stage5_judgements") or []
                 n_confirmed = sum(
                     1 for j in j5 if isinstance(j, dict) and j.get("confirmed")
@@ -307,7 +285,6 @@ def parse_traces(out_path: Path, export_dir: Path):
         confirmed = int(sent_df["n_judge_confirmed"].sum())
         print(f"  LLM 确认违规句: {confirmed}")
 
-    # rule bar chart
     rule_df = pd.DataFrame([
         {"rule_id": k, "count": v}
         for k, v in sorted(rule_counter.items(), key=lambda x: -x[1])
@@ -330,7 +307,6 @@ def parse_traces(out_path: Path, export_dir: Path):
         plt.tight_layout()
         _save_fig(fig, export_dir / "rule_violation_count.png")
 
-    # sentence violation rate per dataset
     sent_agg = sent_df.groupby("dataset", as_index=False).agg(
         sentences=("sentence_text", "count"),
         violation_sentences=("has_violation", "sum"),
@@ -342,7 +318,6 @@ def parse_traces(out_path: Path, export_dir: Path):
     print("\n句子违规率:")
     print(sent_agg.to_string(index=False))
 
-    # anatomy breakdown for R2
     anat_r2 = (
         sent_df[sent_df["rule_ids"].str.contains("R2_ANATOMY", na=False)]
         .groupby("anatomy_keyword")["case_id"]
@@ -370,7 +345,6 @@ def parse_traces(out_path: Path, export_dir: Path):
     ).round(3)
     anat_all = anat_all.sort_values("violation_rate", ascending=False)
 
-    # save CSVs
     _save_csv(sent_agg, export_dir / "sentence_violation_rate.csv")
     _save_csv(rule_df,  export_dir / "rule_violation_count.csv")
     _save_csv(sent_df,  export_dir / "sentence_detail.csv")
@@ -381,9 +355,6 @@ def parse_traces(out_path: Path, export_dir: Path):
     return sent_df, rule_df
 
 
-# ══════════════════════════════════════════════════════════════════
-# Section 5 – 病例级分析
-# ══════════════════════════════════════════════════════════════════
 
 def analyze_cases(sent_df: pd.DataFrame, out_path: Path, export_dir: Path) -> None:
     _banner("5. 病例级分析")
@@ -430,10 +401,6 @@ def analyze_cases(sent_df: pd.DataFrame, out_path: Path, export_dir: Path) -> No
     _save_csv(case_df, export_dir / "abnormal_cases_ranked.csv")
 
 
-# ══════════════════════════════════════════════════════════════════
-# Section 5b – M5 Statistical Protocol
-#   C_LLM, attention cost proxy, bootstrap CI, Holm correction
-# ══════════════════════════════════════════════════════════════════
 
 def _compute_cost_metrics(out_path: Path) -> pd.DataFrame:
     """
@@ -478,7 +445,6 @@ def _compute_cost_metrics(out_path: Path) -> pd.DataFrame:
                 n_judge += len(j5)
                 if obj.get("rerouted_citations"):
                     n_rerouted += 1
-                    # reroute implies one extra gen call
                     if obj.get("generated", False):
                         n_gen += 1
                 stop = obj.get("stop_reason", "")
@@ -552,7 +518,6 @@ def analyze_m5_protocol(
     """M5 Statistical Protocol: cost accounting, bootstrap CI, Holm correction."""
     _banner("M5 Statistical Protocol")
 
-    # ── 1. Cost metrics ──────────────────────────────────────────
     cost_df = _compute_cost_metrics(out_path)
     if cost_df.empty:
         print("  [SKIP] No trace data for cost computation")
@@ -572,14 +537,12 @@ def analyze_m5_protocol(
     _save_csv(cost_agg, export_dir / "m5_cost_aggregate.csv")
     _save_csv(cost_df, export_dir / "m5_cost_per_case.csv")
 
-    # ── 2. Bootstrap CI on violation rate ────────────────────────
     print("\n=== Bootstrap CI (R=5000, α=0.05) ===")
     boot_results = []
     for ds in cost_df["dataset"].unique():
         ds_sent = sent_df[sent_df["dataset"] == ds]
         if ds_sent.empty:
             continue
-        # Patient-level: aggregate violation rate per case
         case_vio_rate = ds_sent.groupby("case_id")["has_violation"].mean().values
         mean_val, lo, hi = _bootstrap_ci(case_vio_rate, R=5000)
         boot_results.append({
@@ -592,7 +555,6 @@ def analyze_m5_protocol(
         })
         print(f"  {ds}: violation_rate = {mean_val:.4f}  95% CI [{lo:.4f}, {hi:.4f}]  (n={len(case_vio_rate)})")
 
-        # Also bootstrap C_LLM per case
         ds_cost = cost_df[cost_df["dataset"] == ds]["C_LLM"].values
         if len(ds_cost) > 0:
             mean_c, lo_c, hi_c = _bootstrap_ci(ds_cost, R=5000)
@@ -610,9 +572,7 @@ def analyze_m5_protocol(
     if not boot_df.empty:
         _save_csv(boot_df, export_dir / "m5_bootstrap_ci.csv")
 
-    # ── 3. Holm correction across datasets × metrics ─────────────
     print("\n=== Holm Step-Down Correction ===")
-    # Compare violation rates between datasets using permutation-style p-values
     datasets = sorted(cost_df["dataset"].unique())
     if len(datasets) >= 2:
         from itertools import combinations
@@ -621,7 +581,6 @@ def analyze_m5_protocol(
         for ds_a, ds_b in combinations(datasets, 2):
             vals_a = sent_df[sent_df["dataset"] == ds_a].groupby("case_id")["has_violation"].mean().values
             vals_b = sent_df[sent_df["dataset"] == ds_b].groupby("case_id")["has_violation"].mean().values
-            # Two-sample bootstrap test
             obs_diff = abs(vals_a.mean() - vals_b.mean())
             pooled = np.concatenate([vals_a, vals_b])
             rng = np.random.RandomState(42)
@@ -650,11 +609,9 @@ def analyze_m5_protocol(
     else:
         print("  [SKIP] Need ≥2 datasets for Holm correction")
 
-    # ── 4. Cost bar chart ────────────────────────────────────────
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
     colors = ["#4C72B0", "#DD8452", "#55A868"][:len(datasets)]
 
-    # C_LLM distribution
     for i, ds in enumerate(datasets):
         vals = cost_df[cost_df["dataset"] == ds]["C_LLM"]
         axes[0].hist(vals, bins=15, alpha=0.6, label=ds, color=colors[i], edgecolor="white")
@@ -663,7 +620,6 @@ def analyze_m5_protocol(
     axes[0].set_ylabel("# cases")
     axes[0].legend()
 
-    # C_attn distribution
     for i, ds in enumerate(datasets):
         vals = cost_df[cost_df["dataset"] == ds]["C_attn"]
         axes[1].hist(vals, bins=15, alpha=0.6, label=ds, color=colors[i], edgecolor="white")
@@ -676,9 +632,6 @@ def analyze_m5_protocol(
     _save_fig(fig, export_dir / "m5_cost_distributions.png")
 
 
-# ══════════════════════════════════════════════════════════════════
-# Section 6 – Case Inspector
-# ══════════════════════════════════════════════════════════════════
 
 def inspect_case_trace(dataset_name: str, case_id: str, root: Path) -> None:
     trace_path = root / "cases" / dataset_name / case_id / "trace.jsonl"
@@ -741,9 +694,6 @@ def random_sample_inspect(dataset_name: str, n: int, root: Path) -> None:
         inspect_case_trace(dataset_name, case_id, root)
 
 
-# ══════════════════════════════════════════════════════════════════
-# Section 7 – Sweep 对比
-# ══════════════════════════════════════════════════════════════════
 
 def _parse_sweep_run(run_dir: Path) -> dict:
     rm: dict = {}
@@ -815,7 +765,6 @@ def analyze_sweep(sweep_root: Path, sweep_glob: str, export_dir: Path) -> None:
     )
     print(sweep_df.to_string(index=False))
 
-    # Heatmaps
     try:
         piv_rate = sweep_df.pivot_table(
             values="violation_sentence_rate",
@@ -845,7 +794,6 @@ def analyze_sweep(sweep_root: Path, sweep_glob: str, export_dir: Path) -> None:
     except Exception as e:
         print(f"  [WARN] heatmap failed: {e}")
 
-    # Rule bar chart
     rule_cols = ["R1_LATERALITY", "R2_ANATOMY", "R4_SIZE", "R5_NEGATION"]
     labels = [
         f"tau={row.tau_iou}\nratio={row.r2_min_support_ratio}"
@@ -872,13 +820,10 @@ def analyze_sweep(sweep_root: Path, sweep_glob: str, export_dir: Path) -> None:
     _save_csv(sweep_df, export_dir / "sweep_summary.csv")
 
 
-# ══════════════════════════════════════════════════════════════════
-# main
-# ══════════════════════════════════════════════════════════════════
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="ProveTok Stage0-4/5 Output Analysis (server mode)"
+        description="MARIE Stage0-4/5 Output Analysis (server mode)"
     )
     parser.add_argument(
         "--out_dir", type=str,
@@ -960,3 +905,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

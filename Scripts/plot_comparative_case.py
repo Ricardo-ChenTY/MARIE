@@ -3,7 +3,7 @@
 Generate comparative qualitative figure: A0 (baseline) vs B2'v2 (best) on the same case.
 
 Shows how baseline routes to wrong tokens with violations,
-while ProveTok routes correctly with evidence-card constraints.
+while MARIE routes correctly with evidence-card constraints.
 
 Output: outputs/paper_figures/fig5_comparative.pdf/png
 
@@ -31,7 +31,6 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "outputs" / "paper_figures"
 VOLUME_ROOT = ROOT / "dataset_5k" / "CT-RATE" / "train"
 
-# ── Configs to compare ──
 CONFIGS = {
     "A0": {
         "label": "A0 (Identity W + IoU Routing)",
@@ -47,12 +46,9 @@ CONFIGS = {
     },
 }
 
-# ── Case & sentence to visualize ──
 DATASET = "ctrate"
 CASE_ID = "train_10754_c_1"
-# Sentence index 5 has R3 violation in A0 but clean in B2'v2
 TARGET_SENT_INDEX = 5
-# Fallback: also try sentence 0 (right lung) if 5 doesn't work well
 FALLBACK_SENT_INDEX = 0
 
 
@@ -113,7 +109,6 @@ def draw_ct_with_tokens(ax, slice_img, tokens, cited_ids, z_idx, cfg_color,
 
     ax.imshow(slice_img.T, cmap="gray", origin="lower", aspect="equal")
 
-    # Color: green for no violation, red for violation
     has_violation = bool(violations)
     edge_color = "#d32f2f" if has_violation else "#2e7d32"
 
@@ -123,7 +118,6 @@ def draw_ct_with_tokens(ax, slice_img, tokens, cited_ids, z_idx, cfg_color,
             continue
         bb = t["bbox_3d_voxel"]
         if bb["z_min"] <= z_idx <= bb["z_max"]:
-            # Use colormap for different tokens
             c = plt.cm.tab10(i / max(len(cited_ids), 1))
             rect = patches.Rectangle(
                 (bb["x_min"], bb["y_min"]),
@@ -139,7 +133,6 @@ def draw_ct_with_tokens(ax, slice_img, tokens, cited_ids, z_idx, cfg_color,
                     f"t{tid}", fontsize=6, color="white", fontweight="bold",
                     bbox=dict(boxstyle="round,pad=0.1", fc="black", alpha=0.6))
 
-    # Violation/pass badge
     if has_violation:
         viol_ids = [v.get("rule_id", "?") for v in violations]
         badge = f"VIOLATION: {', '.join(viol_ids)}"
@@ -180,7 +173,6 @@ def draw_text_card(ax, sentence, cfg_label, box_bg, is_generated):
     wrapped_text = textwrap.fill(text, width=40)
     wrapped_topic = textwrap.fill(original_topic, width=40) if original_topic else ""
 
-    # Violation info
     if violations:
         viol_lines = []
         for v in violations:
@@ -189,7 +181,6 @@ def draw_text_card(ax, sentence, cfg_label, box_bg, is_generated):
     else:
         viol_text = "  None"
 
-    # Evidence card info
     ec_text = ""
     if evidence_card:
         ssr = evidence_card.get("same_side_ratio", "?")
@@ -202,7 +193,6 @@ def draw_text_card(ax, sentence, cfg_label, box_bg, is_generated):
             f"  Depth gate: {evidence_card.get('depth_allowed', '?')}"
         )
 
-    # Score range
     if scores:
         score_str = f"[{min(scores):.3f}, {max(scores):.3f}]"
     else:
@@ -238,7 +228,6 @@ def main():
     print(f"Case: {DATASET}/{CASE_ID}")
     volume_path = VOLUME_ROOT / f"{CASE_ID}.nii.gz"
 
-    # Load volume (shared)
     vol = None
     if volume_path.exists():
         print(f"Loading volume: {volume_path}")
@@ -249,7 +238,6 @@ def main():
     else:
         print("Volume not found, using schematic")
 
-    # Load data for each config
     config_data = {}
     for cfg_name, cfg in CONFIGS.items():
         case_dir = cfg["dir"] / "cases" / DATASET / CASE_ID
@@ -270,12 +258,8 @@ def main():
             "cfg": cfg,
         }
 
-    # ── Build figure: 2 columns × 2 rows ──
-    # Row 1: CT + token overlay for each config
-    # Row 2: Text card for each config
     fig = plt.figure(figsize=(14, 11))
 
-    # Add overall title
     fig.suptitle(
         f"Qualitative Comparison: Same Case ({CASE_ID}), Same Sentence",
         fontsize=13, fontweight="bold", y=0.98
@@ -292,7 +276,6 @@ def main():
         violations = sent.get("violations", [])
         scores = sent.get("topk_scores", [])
 
-        # Find slice for this config's cited tokens
         if vol is not None:
             z_idx = find_best_slice(tokens, cited_ids, vol.shape)
             slice_img = vol[:, :, z_idx]
@@ -304,7 +287,6 @@ def main():
         if scores:
             score_range = f"{min(scores):.3f} – {max(scores):.3f}"
 
-        # Row 1: CT + tokens
         ax_ct = fig.add_subplot(2, 2, col_idx + 1)
         if slice_img is not None:
             draw_ct_with_tokens(
@@ -318,14 +300,12 @@ def main():
                       transform=ax_ct.transAxes, fontsize=14, color="gray")
             ax_ct.set_title(f"{cfg_name}: Routed Tokens")
 
-        # Row 2: Text card
         ax_txt = fig.add_subplot(2, 2, col_idx + 3)
         draw_text_card(
             ax_txt, sent, cfg["label"], cfg["box_bg"],
             is_generated=sent.get("generated", False),
         )
 
-    # Add arrow between columns
     fig.text(0.50, 0.72, "→", fontsize=40, ha="center", va="center",
              fontweight="bold", color="#1565c0")
     fig.text(0.50, 0.69, "Same case,\nsame sentence",
@@ -342,3 +322,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

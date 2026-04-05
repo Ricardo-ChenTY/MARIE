@@ -1,18 +1,8 @@
 #!/usr/bin/env bash
-# ============================================================
-# Phase C2: E1 routing + Stage 3c ON + Stage 5 ON
-#
-# Base: B2 (E1 + Stage 3c)
-# Change: Stage 5 enabled (LLM judge via same Llama-3.1-8B-Instruct)
-#
-# Usage:
-#   tmux new-session -s C2 'bash Scripts/run_ablation_C2.sh 2>&1 | tee logs/C2.log'
-# ============================================================
 set -euo pipefail
 
 PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# ─── Paths ────────────────────────────────────────
 CTRATE_CSV="${PROJ_ROOT}/manifests/ctrate_test.csv"
 RADGENOME_CSV="${PROJ_ROOT}/manifests/radgenome_test.csv"
 ENCODER_CKPT="${PROJ_ROOT}/checkpoints/swinunetr.ckpt"
@@ -21,7 +11,6 @@ LLAMA_MODEL="${PROJ_ROOT}/models/Llama-3.1-8B-Instruct"
 OUT_DIR="${PROJ_ROOT}/outputs/ablation_routing_2x2/C2_E1_stage3c_stage5"
 CACHE_ROOT="${PROJ_ROOT}/.cache"
 HF_HOME_DIR="${PROJ_ROOT}/.hf"
-# ──────────────────────────────────────────────────
 
 mkdir -p "${OUT_DIR}"
 mkdir -p \
@@ -36,10 +25,9 @@ export HUGGINGFACE_HUB_CACHE="${CACHE_ROOT}/huggingface/hub"
 export TRANSFORMERS_CACHE="${CACHE_ROOT}/huggingface/transformers"
 export SENTENCE_TRANSFORMERS_HOME="${CACHE_ROOT}/sentence_transformers"
 
-# Activate conda environment
 CONDA_BASE="${PROJ_ROOT}/miniconda3"
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
-conda activate provetok
+conda activate MARIE
 
 echo "================================================================"
 echo "Phase C2: E1 routing + Stage 3c ON + Stage 5 ON"
@@ -90,3 +78,4 @@ python "${PROJ_ROOT}/run_mini_experiment.py" \
 echo ""
 echo ">>> C2 done"
 echo "Results: ${OUT_DIR}/summary.csv"
+
